@@ -1,0 +1,35 @@
+const std = @import("std");
+
+pub fn build(b: *std.Build) void {
+    const target = b.standardTargetOptions(.{});
+    const optimize = b.standardOptimizeOption(.{});
+
+    const dockerz = b.addModule("dockerz", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = target,
+        .optimize = optimize,
+    });
+
+    // Tests
+    const tests = b.addTest(.{
+        .root_module = dockerz,
+    });
+    const run_tests = b.addRunArtifact(tests);
+
+    const test_step = b.step("test", "Run tests");
+    test_step.dependOn(&run_tests.step);
+
+    // Codegen step
+    const openapi_codegen = b.addSystemCommand(&.{
+        "openapi2zig",
+    });
+    openapi_codegen.addArgs(&.{
+        "generate",
+        "-i",
+        "spec/v1.55.json",
+        "-o",
+        "src/generated/client.zig",
+    });
+    const openapi_codegen_step = b.step("codegen", "Generate the docker openapi client code");
+    openapi_codegen_step.dependOn(&openapi_codegen.step);
+}
