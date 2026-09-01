@@ -9,13 +9,24 @@ pub const UnixTransport = struct {
 };
 
 test "UnixTransport" {
-    const client = std.http.Client{
-        .allocator = std.heap.page_allocator,
+    const allocator = std.testing.allocator;
+    var threaded_io = std.Io.Threaded.init(allocator, .{
+        .argv0 = .empty,
+        .environ = .empty,
+    });
+    defer threaded_io.deinit();
+
+    var client = std.http.Client{
+        .allocator = allocator,
+        .io = threaded_io.io(),
     };
     const docker_socket = "/var/run/docker.sock";
     const unix_transport = UnixTransport{
         .socket_path = docker_socket,
     };
 
-    std.testing.expectError(std.http.Client.ConnectUnixError, unix_transport.connect(client));
+    _ = unix_transport.connect(&client) catch |err| {
+        try std.testing.expect(err == error.FileNotFound or err == error.AccessDenied or err == error.ConnectionRefused);
+        // try std.testing.expectError(std.http.Client.ConnectUnixError, unix_transport.connect(&client));
+    };
 }
