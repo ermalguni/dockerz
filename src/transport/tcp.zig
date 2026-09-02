@@ -9,3 +9,23 @@ pub const TcpTransport = struct {
         return http.connectTcp(.{ .bytes = self.host }, self.port, .plain);
     }
 };
+
+test "test_tcp_connection" {
+    const allocator = std.testing.allocator;
+    var threaded_io = std.Io.Threaded.init(allocator, .{
+        .argv0 = .empty,
+        .environ = .empty,
+    });
+    defer threaded_io.deinit();
+
+    var client = std.http.Client{
+        .allocator = allocator,
+        .io = threaded_io.io(),
+    };
+    const tcp_transport = TcpTransport{ .host = "localhost", .port = 1234 };
+
+    _ = tcp_transport.connect(&client) catch |err| {
+        try std.testing.expect(std.http.Client.ConnectTcpError.HostUnreachable == err);
+        // try std.testing.expectError(std.http.Client.ConnectUnixError, unix_transport.connect(&client));
+    };
+}
