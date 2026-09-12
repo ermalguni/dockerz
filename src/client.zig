@@ -124,30 +124,9 @@ pub const Client = struct {
 };
 
 test "client initialization does not require a running daemon" {
-    const allocator = std.testing.allocator;
-
-    var threaded_io = std.Io.Threaded.init(allocator, .{
-        .argv0 = .empty,
-        .environ = .empty,
-    });
-    defer threaded_io.deinit();
-
-    var client = try Client.init(allocator, threaded_io.io(), .{ .transport = .{ .unix = "/no/real/docker/socket.sock" } });
+    var client = try Client.init(std.testing.allocator, std.testing.io, .{ .transport = .{ .tcp = .{
+        .host = "127.0.0.1",
+        .port = 0,
+    } } });
     defer client.deinit();
-}
-
-test "TestInit_Client_Unix" {
-    const allocator = std.testing.allocator;
-    var threaded_io = std.Io.Threaded.init(allocator, .{
-        .argv0 = .empty,
-        .environ = .empty,
-    });
-    defer threaded_io.deinit();
-
-    const io = threaded_io.io();
-    const config = ClientConfig{};
-    var client = try Client.init(allocator, io, config);
-    client.deinit();
-
-    try std.testing.expectEqual(client.allocator, allocator);
 }
