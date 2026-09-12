@@ -123,6 +123,79 @@ pub const Client = struct {
     }
 };
 
+fn servePing(io: std.Io, listener: *std.Io.net.Server, status: http.Status, body: []const u8) !void {
+    const stream = try listener.accept(io);
+    defer stream.close(io);
+
+    var input: [4096]u8 = undefined;
+    var output: [1024]u8 = undefined;
+
+    var reader = stream.reader(io, &input);
+    var writer = stream.writer(io, &output);
+
+    var server = http.Server.init(&reader.interface, &writer.interface);
+
+    var request = try server.receiveHead();
+
+    try std.testing.expectEqual(http.Method.GET, request.head.method);
+
+    try std.testing.expectEqual("/_ping", request.head.target);
+
+    try request.respond(body, .{ .status = status, .keep_alive = false });
+}
+
+test "client ping HTTP over a tcp connection" {
+    const allocator = std.testing.allocator;
+    const io = std.testing.io;
+
+    const cases = [_]struct {
+        status: http.Status,
+        body: []const u8,
+        expected: anyerror,
+    }{ .{
+        .status = .ok,
+        .body = "OK",
+        .expected = null,
+    }, .{
+        .status = .internal_server_error,
+        .body = "error",
+        .expected = error.UnexpectedHttpStatus,
+    } };
+
+    for (cases) |case| {
+        const address = try std.Io.net.IpAddress.parse("127.0.0.1", 0);
+
+        var listener = try address.listen(io, .{});
+        defer listener.deinit(io);
+
+        var server_task = try io.concurrent(servePing, .{ io, &listener, case.status, case.body });
+        defer server_task.cancel(io) catch {};
+
+        var client = try Client.init(allocator, io, .{ .transport = .{ .tcp = .{
+            .host = "127.0.0.1",
+            .port = listener.socket.address.getPort(),
+        } } });
+        defer client.deinit();
+
+        const url = try std.fmt.allocPrint(allocator, "{s}/_ping}", .{client.base_url});
+        defer allocator.free(url);
+
+        const uri = try std.Uri.parse(url);
+
+        const connection = try client.transport.connect();
+
+        const result = pingConnection(client.client, connection, uri);
+
+        try server_task.await(io);
+
+        if (case.expected) |expected| {
+            try std.testing.expectError(expected, result);
+        } else {
+            try result;
+        }
+    }
+}
+
 test "client initialization does not require a running daemon" {
     var client = try Client.init(std.testing.allocator, std.testing.io, .{ .transport = .{ .tcp = .{
         .host = "127.0.0.1",
