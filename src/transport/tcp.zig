@@ -32,7 +32,8 @@ test "test_tcp_connection" {
         .allocator = allocator,
         .io = threaded_io.io(),
     };
-    const tcp_transport = TcpTransport{ .host = "localhost", .port = 1234 };
+    var tcp_transport = try TcpTransport.init(allocator, "localhost", 1234);
+    defer tcp_transport.deinit(allocator);
 
     _ = tcp_transport.connect(&client) catch |err| {
         try std.testing.expect(std.http.Client.ConnectTcpError.HostUnreachable == err);

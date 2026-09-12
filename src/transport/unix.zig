@@ -40,9 +40,9 @@ test "UnixTransport" {
         .io = threaded_io.io(),
     };
     const docker_socket = "/var/run/docker.sock";
-    const unix_transport = UnixTransport{
-        .socket_path = docker_socket,
-    };
+
+    var unix_transport = try UnixTransport.init(allocator, docker_socket);
+    defer unix_transport.deinit(allocator);
 
     _ = unix_transport.connect(&client) catch |err| {
         try std.testing.expect(err == error.FileNotFound or err == error.AccessDenied or err == error.ConnectionRefused);
