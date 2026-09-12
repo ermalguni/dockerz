@@ -2,11 +2,67 @@ const std = @import("std");
 const Transport = @import("transport/transport.zig").Transport;
 const TransportConfig = Transport.Config;
 
+const models = @import("generated/models.zig");
+const version_api = @import("api/version.zig");
+
+const Version = version_api.Version;
+const SupportedVersions = version_api.SupportedVersions;
+
 const http = std.http;
 
 pub const ClientConfig = struct {
     transport: TransportConfig = .{ .unix = "/var/run/docker.sock" },
 };
+
+fn negotiateVersionBody(allocator: std.mem.Allocator, body: []const u8) !Version {
+    const parsed = try std.json.parseFromSlice(models.SystemVersion, allocator, body, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+
+    const max_version = parsed.value.ApiVersion orelse return version_api.VersionError.MissingApiVersion;
+    const min_version = parsed.value.MinAPIVersion orelse return version_api.VersionError.MissingApiVersion;
+
+    const server: SupportedVersions = .{
+        .max_supported_version = try Version.parse_version(max_version),
+        .min_supported_version = try Version.parse_version(min_version),
+    };
+
+    return version_api.suppored_versions.negotiate(server);
+}
+
+fn negotiateVersion(client: *http.Client, connection: *http.Client.Connection, uri: std.Uri) !Version {
+    var req = blk: {
+        errdefer client.connection_pool.release(connection, client.io);
+
+        break :blk try client.request(.GET, uri, .{ .connection = connection, .redirect_behavior = .unhandled, .headers = .{ .accept_encoding = .{ .override = "identity" } } });
+    };
+    defer req.deinit();
+
+    try req.sendBodiless();
+
+    var resp = try req.receiveHead(&.{});
+
+    const status = resp.head.status;
+    const encoding = resp.head.content_encoding;
+
+    var transfer_buff: [1024]u8 = undefined;
+    const reader = resp.reader(&transfer_buff);
+
+    if (status != .ok) {
+        return error.UnexpectedHttpStatus;
+    }
+
+    if (encoding != .identity) {
+        return error.UnsupportedContentEncoding;
+    }
+
+    const body = reader.allocRemaining(client.allocator, .limited(64 * 1024)) catch |err| switch (err) {
+        error.ReadFailed => return resp.bodyErr() orelse err,
+        else => return err,
+    };
+    defer client.allocator.free(body);
+
+    return negotiateVersionBody(client.allocator, body);
+}
 
 fn pingConnection(client: *http.Client, connection: *http.Client.Connection, uri: std.Uri) !void {
     var request = blk: {
@@ -50,6 +106,7 @@ pub const Client = struct {
     client: *http.Client,
     transport: Transport,
     base_url: []const u8,
+    negotiated_version: Version = null,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ClientConfig) !Client {
         var transport = try Transport.init(allocator, config.transport);
@@ -80,24 +137,21 @@ pub const Client = struct {
         return client;
     }
 
-    // fn check_version(self: *Client) !bool {}
+    pub fn connect(self: *Client) !void {
+        if (self.negotiated_version != null) {
+            return;
+        }
 
-    fn do_request(self: *Client, method: http.Method, path: []const u8) ![]const u8 {
-        const abs_url = try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ self.base_url, path });
-        defer self.allocator.destroy(abs_url);
+        const url = try std.fmt.allocPrint(self.allocator, "{s}/version", .{self.base_url});
+        defer self.allocator.free(url);
 
-        var body = std.ArrayList(u8).initCapacity(self.allocator, 512);
-        errdefer body.deinit();
+        const uri = try std.Uri.parse(url);
 
-        const resp = try self.connection.client.fetch(.{
-            .method = method,
-            .location = .{ .url = self.base_url },
-            .response_writer = body,
-        });
+        const connection = try self.transport.connect(self.client);
 
-        if (resp.status != .ok) {}
+        const selected_version = try negotiateVersion(self.client, connection, uri);
 
-        return body.toOwnedSlice();
+        self.negotiated_version = selected_version;
     }
 
     fn ping(self: *Client) !void {

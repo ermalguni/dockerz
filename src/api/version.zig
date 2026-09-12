@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub const VersionError = error{ MissingDotDelimiter, WrongFormat, WrongMajor, WrongMinor };
+pub const VersionError = error{ MissingDotDelimiter, MissingApiVersion, WrongFormat, WrongMajor, WrongMinor };
 
 pub const Version = struct {
     major: u8,
@@ -13,41 +13,83 @@ pub const Version = struct {
 
     // takes a version string and generates the Version struct
     pub fn parse_version(version: []const u8) VersionError!Version {
-        _ = std.mem.findScalar(u8, version, '.') orelse return VersionError.MissingDotDelimiter;
+        if (std.mem.findScalar(u8, version, '.') == null) {
+            return VersionError.MissingDotDelimiter;
+        }
 
         var iterator = std.mem.splitScalar(u8, version, '.');
 
         const major_str = iterator.next() orelse return VersionError.WrongMajor;
         const minor_str = iterator.next() orelse return VersionError.WrongMinor;
 
-        const major = std.fmt.parseInt(u8, major_str, 10) catch return VersionError.WrongMajor;
-        const minor = std.fmt.parseInt(u8, minor_str, 10) catch return VersionError.WrongMinor;
+        if (iterator.next() != null) {
+            return VersionError.WrongFormat;
+        }
+
+        if (major_str.len == 0) {
+            return VersionError.WrongMajor;
+        }
+
+        if (minor_str.len == 0) {
+            return VersionError.WrongMinor;
+        }
+
+        for (major_str) |byte| {
+            if (!std.ascii.isDigit(byte)) {
+                return VersionError.WrongMajor;
+            }
+        }
+
+        for (minor_str) |byte| {
+            if (!std.ascii.isDigit(byte)) {
+                return VersionError.WrongMinor;
+            }
+        }
 
         return .{
-            .major = major,
-            .minor = minor,
+            .major = std.fmt.parseInt(u8, major_str, 10) catch return VersionError.WrongMajor,
+            .minor = std.fmt.parseInt(u8, minor_str, 10) catch return VersionError.WrongMinor,
         };
     }
+
+    pub fn order(self: Version, other: Version) std.math.Order {
+        const major_order = std.math.order(self.major, other.major);
+
+        if (major_order != .eq) {
+            return major_order;
+        }
+
+        return std.math.order(self.minor, other.minor);
+    }
 };
+
+pub const SupportedVersionsError = error{ InvalidVersionRange, NoCompatibleApiVersion };
 
 pub const SupportedVersions = struct {
     min_supported_version: Version,
     max_supported_version: Version,
 
     pub fn isSupported(self: SupportedVersions, version: Version) bool {
-        if (version.major <= self.max_supported_version.major and
-            version.minor <= self.max_supported_version.minor and
-            version.major >= self.min_supported_version.major and
-            version.minor >= self.min_supported_version.minor)
-        {
-            return true;
+        return version.order(self.min_supported_version) != .lt and version.order(self.max_supported_version) != .gt;
+    }
+
+    pub fn negotiate(self: SupportedVersions, server: SupportedVersions) SupportedVersionsError!Version {
+        if (self.min_supported_version.order(self.max_supported_version) == .gt or server.min_supported_version.order(server.min_supported_version) == .gt) {
+            return SupportedVersionsError.InvalidVersionRange;
         }
 
-        return false;
+        const lower = if (self.min_supported_version.order(server.min_supported_version) == .gt) self.min_supported_version else server.min_supported_version;
+        const upper = if (self.max_supported_version.order(server.max_supported_version) == .gt) self.max_supported_version else server.max_supported_version;
+
+        if (lower.order(upper) == .gt) {
+            return SupportedVersionsError.NoCompatibleApiVersion;
+        }
+
+        return upper;
     }
 };
 
-pub var suppored_versions: SupportedVersions = .{
+pub const suppored_versions: SupportedVersions = .{
     .max_supported_version = .{ .major = 1, .minor = 55 },
 
     .min_supported_version = .{ .major = 1, .minor = 40 },
