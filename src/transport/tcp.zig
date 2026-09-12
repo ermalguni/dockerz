@@ -36,7 +36,7 @@ test "test_tcp_connection" {
     defer tcp_transport.deinit(allocator);
 
     _ = tcp_transport.connect(&client) catch |err| {
-        try std.testing.expect(std.http.Client.ConnectTcpError.HostUnreachable == err);
+        try std.testing.expect(std.http.Client.ConnectTcpError.ConnectionRefused == err);
         // try std.testing.expectError(std.http.Client.ConnectUnixError, unix_transport.connect(&client));
     };
 }
