@@ -4,8 +4,18 @@ pub const TcpTransport = struct {
     host: []const u8,
     port: u16,
 
+    pub fn init(allocator: std.mem.Allocator, host: []const u8, port: u16) !TcpTransport {
+        try std.Io.net.HostName.validate(host);
+
+        return .{ .host = try allocator.dupe(u8, host), .port = port };
+    }
+
+    pub fn deinit(self: *TcpTransport, allocator: std.mem.Allocator) void {
+        allocator.free(self.host);
+        self.* = undefined;
+    }
+
     pub fn connect(self: *const TcpTransport, http: *std.http.Client) !*std.http.Client.Connection {
-        try std.Io.net.HostName.validate(self.host);
         return http.connectTcp(.{ .bytes = self.host }, self.port, .plain);
     }
 };
