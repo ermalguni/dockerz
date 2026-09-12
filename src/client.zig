@@ -106,7 +106,7 @@ pub const Client = struct {
     client: *http.Client,
     transport: Transport,
     base_url: []const u8,
-    negotiated_version: Version = null,
+    negotiated_version: ?Version,
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ClientConfig) !Client {
         var transport = try Transport.init(allocator, config.transport);
@@ -132,6 +132,7 @@ pub const Client = struct {
             .client = http_client,
             .transport = transport,
             .base_url = base_url,
+            .negotiated_version = undefined,
         };
 
         return client;
