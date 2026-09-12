@@ -32,6 +32,8 @@ test "test_tcp_connection" {
         .allocator = allocator,
         .io = threaded_io.io(),
     };
+    defer client.deinit();
+
     var tcp_transport = try TcpTransport.init(allocator, "localhost", 1234);
     defer tcp_transport.deinit(allocator);
 
