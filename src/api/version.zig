@@ -150,29 +150,98 @@ pub fn getVersion(client: *http.Client, connection: *http.Client.Connection, uri
     return negotiateVersionBody(client.allocator, body);
 }
 
-test "test_supported_versions" {
-    const allowed_version = Version{
-        .major = 1,
-        .minor = 50,
-    };
-    const not_allowed_version = Version{ .major = 0, .minor = 15 };
-
-    try std.testing.expectEqual(true, suppored_versions.isSupported(allowed_version));
-    try std.testing.expectEqual(false, suppored_versions.isSupported(not_allowed_version));
+test "version parser accepts numeric versions" {
+    try std.testing.expectEqual(Version{ .major = 0, .minor = 0 }, try Version.parse_version("0.0"));
+    try std.testing.expectEqual(Version{ .major = 255, .minor = 255 }, try Version.parse_version("255.255"));
 }
 
-test "check_version" {
-    const allocator = std.testing.allocator;
-    const v1 = Version{
-        .major = 1,
-        .minor = 2,
+test "version parser rejects malformed versions and big version numbers" {
+    const cases = [_]struct {
+        version_text: []const u8,
+        expected: VersionError,
+    }{
+        .{ .version_text = "", .expected = VersionError.MissingDotDelimiter },
+        .{ .version_text = ".55", .expected = VersionError.WrongMajor },
+        .{
+            .version_text = "1.",
+            .expected = VersionError.WrongMinor,
+        },
+        .{
+            .version_text = "1.1.1",
+            .expected = VersionError.WrongFormat,
+        },
+        .{
+            .version_text = "+1.10",
+            .expected = VersionError.WrongMajor,
+        },
+        .{
+            .version_text = "1.1_1",
+            .expected = error.WrongMinor,
+        },
+        .{
+            .version_text = "256.1",
+            .expected = error.WrongMajor,
+        },
+        .{
+            .version_text = "1.256",
+            .expected = error.WrongMinor,
+        },
     };
 
-    const v1_string_check = "1.2";
-    const v1_string = try v1.to_string(allocator);
-    defer allocator.free(v1_string);
+    for (cases) |case| {
+        try std.testing.expectError(case.expected, Version.parse_version(case.version_text));
+    }
+}
 
-    try std.testing.expectEqualStrings(v1_string_check, v1_string);
-    try std.testing.expectError(VersionError.MissingDotDelimiter, Version.parse_version("123"));
-    try std.testing.expectError(VersionError.WrongMajor, Version.parse_version("a.15"));
+test "version ordering check comparisons" {
+    const cases = [_]struct { left: Version, right: Version, expected: std.math.Order }{
+        .{ .left = .{ .major = 1, .minor = 8 }, .right = .{ .major = 1, .minor = 15 }, .expected = .lt },
+        .{ .left = .{ .major = 1, .minor = 55 }, .right = .{ .major = 1, .minor = 41 }, .expected = .gt },
+        .{ .left = .{ .major = 1, .minor = 10 }, .right = .{ .major = 1, .minor = 10 }, .expected = .eq },
+        .{
+            .left = .{ .major = 2, .minor = 0 },
+            .right = .{ .major = 1, .minor = 255 },
+            .expected = .gt,
+        },
+    };
+
+    for (cases) |case| {
+        try std.testing.expectEqual(case.expected, case.left.order(case.right));
+    }
+}
+
+// is used in tests to generate SupportedVersion structs
+fn getTestRange(min_version: []const u8, max_version: []const u8) !SupportedVersions {
+    return .{
+        .min_supported_version = try Version.parse_version(min_version),
+        .max_supported_version = try Version.parse_version(max_version),
+    };
+}
+
+test "test supported version" {
+    const supported_range = try getTestRange("1.40", "2.5");
+
+    try std.testing.expect(supported_range.isSupported(try Version.parse_version("1.40")));
+    try std.testing.expect(supported_range.isSupported(try Version.parse_version("2.0")));
+    try std.testing.expect(supported_range.isSupported(try Version.parse_version("2.5")));
+    try std.testing.expect(!supported_range.isSupported(try Version.parse_version("1.39")));
+    try std.testing.expect(!supported_range.isSupported(try Version.parse_version("2.51")));
+}
+
+test "test version negotiation" {
+    const supported_range = try getTestRange("1.40", "1.55");
+
+    const cases = [_]struct {
+        min: []const u8,
+        max: []const u8,
+        expected: []const u8,
+    }{ .{ .min = "1.28", .max = "1.49", .expected = "1.49" }, .{ .min = "1.44", .max = "1.60", .expected = "1.55" }, .{
+        .min = "1.24",
+        .max = "1.40",
+        .expected = "1.40",
+    }, .{ .min = "1.55", .max = "1.60", .expected = "1.55" } };
+
+    for (cases) |case| {
+        try std.testing.expectEqual(try Version.parse_version(case.expected), try supported_range.negotiate(try getTestRange(case.min, case.max)));
+    }
 }
