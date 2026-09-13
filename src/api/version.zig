@@ -1,4 +1,7 @@
 const std = @import("std");
+const models = @import("../generated/models.zig");
+
+const http = std.http;
 
 pub const GetVersionPath = "/version";
 
@@ -96,6 +99,56 @@ pub const suppored_versions: SupportedVersions = .{
 
     .min_supported_version = .{ .major = 1, .minor = 40 },
 };
+
+fn negotiateVersionBody(allocator: std.mem.Allocator, body: []const u8) !Version {
+    const parsed = try std.json.parseFromSlice(models.SystemVersion, allocator, body, .{ .ignore_unknown_fields = true });
+    defer parsed.deinit();
+
+    const max_version = parsed.value.ApiVersion orelse return VersionError.MissingApiVersion;
+    const min_version = parsed.value.MinAPIVersion orelse return VersionError.MissingApiVersion;
+
+    const server: SupportedVersions = .{
+        .max_supported_version = try Version.parse_version(max_version),
+        .min_supported_version = try Version.parse_version(min_version),
+    };
+
+    return suppored_versions.negotiate(server);
+}
+
+pub fn getVersion(client: *http.Client, connection: *http.Client.Connection, uri: std.Uri) !Version {
+    var req = blk: {
+        errdefer client.connection_pool.release(connection, client.io);
+
+        break :blk try client.request(.GET, uri, .{ .connection = connection, .redirect_behavior = .unhandled, .headers = .{ .accept_encoding = .{ .override = "identity" } } });
+    };
+    defer req.deinit();
+
+    try req.sendBodiless();
+
+    var resp = try req.receiveHead(&.{});
+
+    const status = resp.head.status;
+    const encoding = resp.head.content_encoding;
+
+    var transfer_buff: [1024]u8 = undefined;
+    const reader = resp.reader(&transfer_buff);
+
+    if (status != .ok) {
+        return error.UnexpectedHttpStatus;
+    }
+
+    if (encoding != .identity) {
+        return error.UnsupportedContentEncoding;
+    }
+
+    const body = reader.allocRemaining(client.allocator, .limited(64 * 1024)) catch |err| switch (err) {
+        error.ReadFailed => return resp.bodyErr() orelse err,
+        else => return err,
+    };
+    defer client.allocator.free(body);
+
+    return negotiateVersionBody(client.allocator, body);
+}
 
 test "test_supported_versions" {
     const allowed_version = Version{

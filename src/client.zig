@@ -4,67 +4,16 @@ const TransportConfig = Transport.Config;
 
 const models = @import("generated/models.zig");
 const version_api = @import("api/version.zig");
+const ping_api = @import("api/ping.zig");
 
 const Version = version_api.Version;
 const SupportedVersions = version_api.SupportedVersions;
-
-const ping_api = @import("api/ping.zig");
 
 const http = std.http;
 
 pub const ClientConfig = struct {
     transport: TransportConfig = .{ .unix = "/var/run/docker.sock" },
 };
-
-fn negotiateVersionBody(allocator: std.mem.Allocator, body: []const u8) !Version {
-    const parsed = try std.json.parseFromSlice(models.SystemVersion, allocator, body, .{ .ignore_unknown_fields = true });
-    defer parsed.deinit();
-
-    const max_version = parsed.value.ApiVersion orelse return version_api.VersionError.MissingApiVersion;
-    const min_version = parsed.value.MinAPIVersion orelse return version_api.VersionError.MissingApiVersion;
-
-    const server: SupportedVersions = .{
-        .max_supported_version = try Version.parse_version(max_version),
-        .min_supported_version = try Version.parse_version(min_version),
-    };
-
-    return version_api.suppored_versions.negotiate(server);
-}
-
-fn negotiateVersion(client: *http.Client, connection: *http.Client.Connection, uri: std.Uri) !Version {
-    var req = blk: {
-        errdefer client.connection_pool.release(connection, client.io);
-
-        break :blk try client.request(.GET, uri, .{ .connection = connection, .redirect_behavior = .unhandled, .headers = .{ .accept_encoding = .{ .override = "identity" } } });
-    };
-    defer req.deinit();
-
-    try req.sendBodiless();
-
-    var resp = try req.receiveHead(&.{});
-
-    const status = resp.head.status;
-    const encoding = resp.head.content_encoding;
-
-    var transfer_buff: [1024]u8 = undefined;
-    const reader = resp.reader(&transfer_buff);
-
-    if (status != .ok) {
-        return error.UnexpectedHttpStatus;
-    }
-
-    if (encoding != .identity) {
-        return error.UnsupportedContentEncoding;
-    }
-
-    const body = reader.allocRemaining(client.allocator, .limited(64 * 1024)) catch |err| switch (err) {
-        error.ReadFailed => return resp.bodyErr() orelse err,
-        else => return err,
-    };
-    defer client.allocator.free(body);
-
-    return negotiateVersionBody(client.allocator, body);
-}
 
 pub const Client = struct {
     allocator: std.mem.Allocator,
@@ -109,20 +58,20 @@ pub const Client = struct {
             return;
         }
 
-        const url = try std.fmt.allocPrint(self.allocator, "{s}/version", .{self.base_url});
+        const url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.base_url, version_api.GetVersionPath });
         defer self.allocator.free(url);
 
         const uri = try std.Uri.parse(url);
 
         const connection = try self.transport.connect(self.client);
 
-        const selected_version = try negotiateVersion(self.client, connection, uri);
+        const selected_version = try version_api.getVersion(self.client, connection, uri);
 
         self.negotiated_version = selected_version;
     }
 
     fn ping(self: *Client) !void {
-        const url = try std.fmt.allocPrint(self.allocator, "{s}/_ping", .{self.base_url});
+        const url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.base_url, ping_api.GetPingPath });
         defer self.allocator.free(url);
 
         const uri = try std.Uri.parse(url);
