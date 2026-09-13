@@ -8,6 +8,8 @@ const version_api = @import("api/version.zig");
 const Version = version_api.Version;
 const SupportedVersions = version_api.SupportedVersions;
 
+const ping_api = @import("api/ping.zig");
+
 const http = std.http;
 
 pub const ClientConfig = struct {
@@ -62,42 +64,6 @@ fn negotiateVersion(client: *http.Client, connection: *http.Client.Connection, u
     defer client.allocator.free(body);
 
     return negotiateVersionBody(client.allocator, body);
-}
-
-fn pingConnection(client: *http.Client, connection: *http.Client.Connection, uri: std.Uri) !void {
-    var request = blk: {
-        errdefer client.connection_pool.release(connection, client.io);
-
-        break :blk try client.request(.GET, uri, .{ .connection = connection, .redirect_behavior = .unhandled, .headers = .{ .accept_encoding = .{ .override = "identity" } } });
-    };
-    defer request.deinit();
-
-    try request.sendBodiless();
-    var response = try request.receiveHead(&.{});
-
-    const status = response.head.status;
-    const encoding = response.head.content_encoding;
-
-    var transfer_buffer: [64]u8 = undefined;
-    const body = response.reader(&transfer_buffer);
-
-    if (status != .ok) {
-        return error.UnexpectedHttpStatus;
-    }
-
-    if (encoding != .identity) {
-        return error.UnsupportedContentEncoding;
-    }
-
-    var bytes: [3]u8 = undefined;
-
-    const len = body.readSliceShort(&bytes) catch |err| {
-        return err;
-    };
-
-    if (!std.mem.eql(u8, bytes[0..len], "OK")) {
-        return error.InvalidPingResponse;
-    }
 }
 
 pub const Client = struct {
@@ -163,7 +129,7 @@ pub const Client = struct {
 
         const connection = try self.transport.connect(self.client);
 
-        try pingConnection(self.client, connection, uri);
+        try ping_api.runPing(self.client, connection, uri);
     }
 
     pub fn deinit(self: *Client) void {
@@ -239,7 +205,7 @@ test "client ping HTTP over a tcp connection" {
 
         const connection = try client.transport.connect();
 
-        const result = pingConnection(client.client, connection, uri);
+        const result = ping_api.runPing(client.client, connection, uri);
 
         try server_task.await(io);
 
