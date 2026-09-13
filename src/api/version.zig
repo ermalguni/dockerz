@@ -1,5 +1,7 @@
 const std = @import("std");
 
+pub const GetVersionPath = "/version";
+
 pub const VersionError = error{ MissingDotDelimiter, MissingApiVersion, WrongFormat, WrongMajor, WrongMinor };
 
 pub const Version = struct {

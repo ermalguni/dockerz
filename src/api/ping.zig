@@ -2,7 +2,7 @@ const std = @import("std");
 
 pub const GetPingPath = "/_ping";
 
-pub const PingError = error{};
+pub const PingError = error{ UnexpectedHttpStatus, UnsupportedContentEncoding, InvalidPingResponse };
 
 pub fn runPing(http_client: *std.http.Client, connection: *std.http.Client.Connection, uri: std.Uri) !void {
     var request = blk: {
@@ -22,11 +22,11 @@ pub fn runPing(http_client: *std.http.Client, connection: *std.http.Client.Conne
     const body = response.reader(&transfer_buffer);
 
     if (status != .ok) {
-        return error.UnexpectedHttpStatus;
+        return PingError.UnexpectedHttpStatus;
     }
 
     if (encoding != .identity) {
-        return error.UnsupportedContentEncoding;
+        return PingError.UnsupportedContentEncoding;
     }
 
     var bytes: [3]u8 = undefined;
@@ -36,6 +36,6 @@ pub fn runPing(http_client: *std.http.Client, connection: *std.http.Client.Conne
     };
 
     if (!std.mem.eql(u8, bytes[0..len], "OK")) {
-        return error.InvalidPingResponse;
+        return PingError.InvalidPingResponse;
     }
 }
