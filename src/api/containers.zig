@@ -39,6 +39,27 @@ pub const Containers = struct {
             .versioned = true,
         });
     }
+
+    pub fn get(self: Containers, name_or_id: []const u8) !std.json.Parsed(models.ContainerInspectResponse) {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const writer = &target.writer;
+
+        try writer.writeAll("/containers/");
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+        try id.formatEscaped(writer);
+
+        try writer.writeAll("/json");
+
+        return self.client.getJson(models.ContainerInspectResponse, .{
+            .target = writer.buffered(),
+            .versioned = true,
+        });
+    }
 };
 
 fn appendQuery(
