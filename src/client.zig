@@ -23,6 +23,14 @@ pub const Client = struct {
     base_url: []const u8,
     negotiated_version: ?Version,
 
+    pub const RequestOptions = struct {
+        target: []const u8,
+        versioned: bool = true,
+        method: http.Method = .GET,
+        expected_status: http.Status = .ok,
+        max_body_bytes: usize = 8 * 1024 * 1024,
+    };
+
     pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ClientConfig) !Client {
         var transport = try Transport.init(allocator, config.transport);
         errdefer transport.deinit(allocator);
@@ -47,7 +55,7 @@ pub const Client = struct {
             .client = http_client,
             .transport = transport,
             .base_url = base_url,
-            .negotiated_version = undefined,
+            .negotiated_version = null,
         };
 
         return client;
@@ -79,6 +87,68 @@ pub const Client = struct {
         const connection = try self.transport.connect(self.client);
 
         try ping_api.runPing(self.client, connection, uri);
+    }
+
+    pub fn containers(self: *Client) @import("api/containers.zig").Containers {
+        return .{ .client = self };
+    }
+
+    fn buildUrl(self: *Client, target: []const u8, versioned: bool) ![]u8 {
+        if (!versioned) {
+            return std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.base_url, target });
+        }
+
+        const vers = self.negotiated_version orelse error.ApiVersionNotNegotiated;
+        return std.fmt.allocPrint(self.allocator, "{s}/v{d}.{d}{s}", .{ self.base_url, vers.major, vers.minor, target });
+    }
+
+    fn requestBytes(self: *Client, options: RequestOptions) ![]u8 {
+        const url = try self.buildUrl(options.target, options.versioned);
+        defer self.allocator.free(url);
+
+        const uri = try std.Uri.parse(url);
+        const connection = try self.transport.connect(self.client);
+
+        var req = blk: {
+            errdefer self.client.connection_pool.release(connection, self.io);
+
+            break :blk try self.client.request(options.method, uri, .{ .connection = connection, .redirect_behavior = .unhandled, .headers = .{ .accept_encoding = .{ .override = "identity" } } });
+        };
+        defer req.deinit();
+
+        try req.sendBodiless();
+
+        var resp = try req.receiveHead(&.{});
+
+        if (resp.head.status != options.expected_status) {
+            return error.UnexpectedHttpStatus;
+        }
+
+        if (resp.head.content_encoding != .identity) {
+            return error.UnsupportedContentEncoding;
+        }
+
+        var transfer_buffer: [4 * 1028]u8 = undefined;
+        const reader = resp.reader(&transfer_buffer);
+
+        const body = reader.allocRemaining(self.allocator, .limited(options.max_body_bytes +| 1)) catch |err| switch (err) {
+            error.ReadFailed => return resp.bodyErr() orelse err,
+            else => return err,
+        };
+        errdefer self.allocator.free(body);
+
+        if (body.len > options.max_body_bytes) {
+            return error.StreamTooLong;
+        }
+
+        return body;
+    }
+
+    pub fn getJson(self: *Client, comptime T: type, options: RequestOptions) !std.json.Parsed(T) {
+        const body = try self.requestBytes(options);
+        defer self.allocator.free(body);
+
+        return std.json.parseFromSlice(T, self.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
     }
 
     pub fn deinit(self: *Client) void {
