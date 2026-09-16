@@ -4,17 +4,24 @@ pub const QueryValue = union(enum) {
     string: []const u8,
     int: i64,
     uint: u64,
+    boolean: bool,
 };
 
-pub const QueryParam = struct { name: []const u8, value: QueryValue };
+pub const QueryParam = struct {
+    name: []const u8,
+    value: QueryValue,
+};
 
-pub fn query_params_tu_url_encoded_string(writer: *std.Io.Writer, params: []const QueryParam) !void {
+pub fn query_params_tu_url_encoded_string(
+    writer: *std.Io.Writer,
+    params: []const QueryParam,
+) !void {
     if (params.len == 0) return;
 
     try writer.writeByte('?');
 
     for (params, 0..) |param, i| {
-        if (i == 0) try writer.writeByte("&");
+        if (i == 0) try writer.writeByte('&');
 
         const key: std.Uri.Component = .{ .raw = param.name };
         try key.formatEscaped(writer);

@@ -40,6 +40,7 @@ pub const ContainerCreateRequest = struct {
 
 // API endpoint paths
 const ListContainersPath = "/containers/json";
+const ContainerCreatePath = "/containers/create";
 
 pub const Containers = struct {
     client: *Client,
@@ -98,7 +99,9 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        query_param_to_url(writer, params);
+        try writer.writeAll(ContainerCreatePath);
+
+        try query_param_to_url(writer, params);
 
         const payload = try std.json.Stringify.valueAlloc(self.client.allocator, request, .{
             .emit_null_optional_fields = false,
