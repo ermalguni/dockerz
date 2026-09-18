@@ -29,6 +29,8 @@ pub const Client = struct {
         method: http.Method = .GET,
         expected_status: http.Status = .ok,
         max_body_bytes: usize = 8 * 1024 * 1024,
+        payload: ?[]const u8 = null,
+        content_type: ?[]const u8 = null,
     };
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ClientConfig) !Client {
@@ -112,11 +114,38 @@ pub const Client = struct {
         var req = blk: {
             errdefer self.client.connection_pool.release(connection, self.io);
 
-            break :blk try self.client.request(options.method, uri, .{ .connection = connection, .redirect_behavior = .unhandled, .headers = .{ .accept_encoding = .{ .override = "identity" } } });
+            break :blk try self.client.request(
+                options.method,
+                uri,
+                .{
+                    .connection = connection,
+                    .redirect_behavior = .unhandled,
+                    .headers = .{
+                        .accept_encoding = .{ .override = "identity" },
+                        .content_type = if (options.content_type) |value|
+                            .{ .override = value }
+                        else
+                            .default,
+                    },
+                },
+            );
         };
         defer req.deinit();
 
-        try req.sendBodiless();
+        if (options.payload) |payload| {
+            req.transfer_encoding = .{
+                .content_length = payload.len,
+            };
+
+            var body_writer = try req.sendBodyUnflushed(&.{});
+
+            try body_writer.writer.writeAll(payload);
+            try body_writer.end();
+
+            try req.connection.?.flush();
+        } else {
+            try req.sendBodiless();
+        }
 
         var resp = try req.receiveHead(&.{});
 

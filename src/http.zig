@@ -37,3 +37,13 @@ pub fn query_params_tu_url_encoded_string(
         }
     }
 }
+
+pub fn writeTargetURL(
+    writer: *std.Io.Writer,
+    comptime path: []const u8,
+    path_args: anytype,
+    params: []const QueryParam,
+) !void {
+    try writer.print(path, path_args);
+    try query_params_tu_url_encoded_string(writer, params);
+}

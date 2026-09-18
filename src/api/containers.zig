@@ -3,6 +3,15 @@ const Client = @import("../client.zig").Client;
 const models = @import("../generated/models.zig");
 const QueryParam = @import("../http.zig").QueryParam;
 const query_param_to_url = @import("../http.zig").query_params_tu_url_encoded_string;
+const writeTargetUrl = @import("../http.zig").writeTargetURL;
+
+const Paths = struct {
+    const List = "/containers/json";
+    const Create = "/containers/create";
+    const Get = "/containers/{f}/json";
+    const Start = "/containers/{f}/start";
+    const Stop = "/containers/{f}/stop";
+};
 
 pub const ListOptions = struct {
     all: ?bool = null,
@@ -38,10 +47,6 @@ pub const ContainerCreateRequest = struct {
     }
 };
 
-// API endpoint paths
-const ListContainersPath = "/containers/json";
-const ContainerCreatePath = "/containers/create";
-
 pub const Containers = struct {
     client: *Client,
 
@@ -51,7 +56,7 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        try writer.writeAll(ListContainersPath);
+        try writer.writeAll(Paths.List);
         var first = true;
 
         if (options.all) |value| {
@@ -78,14 +83,12 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        try writer.writeAll("/containers/");
-
         const id: std.Uri.Component = .{
             .raw = name_or_id,
         };
         try id.formatEscaped(writer);
 
-        try writer.writeAll("/json");
+        try writeTargetUrl(writer, Paths.Get, .{id}, &.{});
 
         return self.client.getJson(models.ContainerInspectResponse, .{
             .target = writer.buffered(),
@@ -99,15 +102,20 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        try writer.writeAll(ContainerCreatePath);
-
-        try query_param_to_url(writer, params);
+        try writeTargetUrl(writer, Paths.Create, .{}, params);
 
         const payload = try std.json.Stringify.valueAlloc(self.client.allocator, request, .{
             .emit_null_optional_fields = false,
         });
 
-        return self.client.getJson(models.ContainerCreateResponse, .{ .target = writer.buffered(), .versioned = true, .method = .POST, .expected_status = .created, .payload = payload, .content_type = "application/json" });
+        return self.client.getJson(models.ContainerCreateResponse, .{
+            .target = writer.buffered(),
+            .versioned = true,
+            .method = .POST,
+            .expected_status = .created,
+            .payload = payload,
+            .content_type = "application/json",
+        });
     }
 };
 
