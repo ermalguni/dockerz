@@ -32,11 +32,4 @@ pub const Transport = union(enum) {
             .tcp => |*tcp| tcp.deinit(allocator),
         }
     }
-
-    pub fn connect(self: *const Transport, http: *std.http.Client) !*std.http.Client.Connection {
-        return switch (self.*) {
-            .unix => |*transport| transport.connect(http),
-            .tcp => |*transport| transport.connect(http),
-        };
-    }
 };

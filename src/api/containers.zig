@@ -2,7 +2,6 @@ const std = @import("std");
 const Client = @import("../client.zig").Client;
 const models = @import("../generated/models.zig");
 const QueryParam = @import("../http.zig").QueryParam;
-const query_param_to_url = @import("../http.zig").query_params_tu_url_encoded_string;
 const writeTargetUrl = @import("../http.zig").writeTargetURL;
 
 const Paths = struct {
@@ -23,10 +22,10 @@ pub const ContainerCreateRequest = struct {
     host_config: ?models.HostConfig,
     networking_config: ?models.NetworkingConfig,
 
-    pub fn toJsonString(self: ContainerCreateRequest, json_string: *std.json.Stringify) !void {
+    pub fn jsonStringify(self: ContainerCreateRequest, json_string: *std.json.Stringify) !void {
         try json_string.beginObject();
 
-        for (std.meta.fields(models.ContainerConfig)) |field| {
+        inline for (std.meta.fields(models.ContainerConfig)) |field| {
             if (@field(self.config, field.name)) |value| {
                 try json_string.objectField(field.name);
                 try json_string.write(value);
@@ -56,20 +55,31 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        try writer.writeAll(Paths.List);
-        var first = true;
+        var params: [2]QueryParam = undefined;
+        var count: u8 = 0;
 
         if (options.all) |value| {
-            try appendQuery(writer, &first, "all", if (value) "true" else "false");
+            params[count] = .{ .name = "all", .value = .{
+                .boolean = value,
+            } };
+
+            count += 1;
         }
 
         if (options.limit) |value| {
-            var buffer: [10]u8 = undefined;
+            params[count] = .{ .name = "limit", .value = .{
+                .int = value,
+            } };
 
-            const text = try std.fmt.bufPrint(&buffer, "{d}", .{value});
-
-            try appendQuery(writer, &first, "limit", text);
+            count += 1;
         }
+
+        try writeTargetUrl(
+            writer,
+            Paths.List,
+            .{},
+            params[0..count],
+        );
 
         return self.client.getJson([]const models.ContainerSummary, .{
             .target = writer.buffered(),
@@ -81,17 +91,19 @@ pub const Containers = struct {
         var target: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer target.deinit();
 
-        const writer = &target.writer;
-
         const id: std.Uri.Component = .{
             .raw = name_or_id,
         };
-        try id.formatEscaped(writer);
 
-        try writeTargetUrl(writer, Paths.Get, .{id}, &.{});
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Get,
+            .{std.fmt.alt(id, .formatEscaped)},
+            &.{},
+        );
 
         return self.client.getJson(models.ContainerInspectResponse, .{
-            .target = writer.buffered(),
+            .target = target.writer.buffered(),
             .versioned = true,
         });
     }
@@ -104,39 +116,22 @@ pub const Containers = struct {
 
         try writeTargetUrl(writer, Paths.Create, .{}, params);
 
-        const payload = try std.json.Stringify.valueAlloc(self.client.allocator, request, .{
-            .emit_null_optional_fields = false,
-        });
+        const payload = try std.json.Stringify.valueAlloc(
+            self.client.allocator,
+            request,
+            .{
+                .emit_null_optional_fields = false,
+            },
+        );
+        defer self.client.allocator.free(payload);
 
         return self.client.getJson(models.ContainerCreateResponse, .{
             .target = writer.buffered(),
             .versioned = true,
-            .method = .POST,
+            .method = .post,
             .expected_status = .created,
             .payload = payload,
             .content_type = "application/json",
         });
     }
 };
-
-fn appendQuery(
-    writer: *std.Io.Writer,
-    first: *bool,
-    name: []const u8,
-    value: []const u8,
-) !void {
-    try writer.writeByte(if (first.*) '?' else '&');
-    first.* = false;
-
-    const key_component: std.Uri.Component = .{
-        .raw = name,
-    };
-
-    const value_component: std.Uri.Component = .{
-        .raw = value,
-    };
-
-    try key_component.formatEscaped(writer);
-    try writer.writeByte('=');
-    try value_component.formatEscaped(writer);
-}

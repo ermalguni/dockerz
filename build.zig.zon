@@ -3,7 +3,12 @@
     .version = "0.1.0",
     .minimum_zig_version = "0.16.0",
     .fingerprint = 0xca47fd05f9359a21,
-    .dependencies = .{},
+    .dependencies = .{
+        .dusty = .{
+            .url = "git+https://github.com/lalinsky/dusty?ref=v0.3.1#494f856d1795cfbf6180f6f8e5a80665d8114174",
+            .hash = "dusty-0.3.1-Qdw7Rpd3IABFjZ0h7ymC-j2FkkcPRA52RYSW6AMojKlY",
+        },
+    },
     .paths = .{
         "build.zig",
         "build.zig.zon",

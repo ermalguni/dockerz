@@ -1,6 +1,8 @@
 const std = @import("std");
 const Transport = @import("transport/transport.zig").Transport;
-const TransportConfig = Transport.Config;
+pub const TransportConfig = Transport.Config;
+
+const dusty = @import("dusty");
 
 const models = @import("generated/models.zig");
 const version_api = @import("api/version.zig");
@@ -18,7 +20,7 @@ pub const ClientConfig = struct {
 pub const Client = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
-    client: *http.Client,
+    client: dusty.Client,
     transport: Transport,
     base_url: []const u8,
     negotiated_version: ?Version,
@@ -26,8 +28,8 @@ pub const Client = struct {
     pub const RequestOptions = struct {
         target: []const u8,
         versioned: bool = true,
-        method: http.Method = .GET,
-        expected_status: http.Status = .ok,
+        method: dusty.Method = .get,
+        expected_status: dusty.Status = .ok,
         max_body_bytes: usize = 8 * 1024 * 1024,
         payload: ?[]const u8 = null,
         content_type: ?[]const u8 = null,
@@ -44,11 +46,10 @@ pub const Client = struct {
         };
         errdefer allocator.free(base_url);
 
-        const http_client = try allocator.create(http.Client);
-        http_client.* = .{
-            .allocator = allocator,
-            .io = io,
-        };
+        const http_client = dusty.Client.init(allocator, io, .{
+            .max_redirects = 0,
+            .max_response_size = 8 * 1024 * 1024,
+        });
         errdefer http_client.deinit();
 
         const client = Client{
@@ -68,27 +69,11 @@ pub const Client = struct {
             return;
         }
 
-        const url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.base_url, version_api.GetVersionPath });
-        defer self.allocator.free(url);
-
-        const uri = try std.Uri.parse(url);
-
-        const connection = try self.transport.connect(self.client);
-
-        const selected_version = try version_api.getVersion(self.client, connection, uri);
-
-        self.negotiated_version = selected_version;
+        self.negotiated_version = try version_api.getVersion(self);
     }
 
     fn ping(self: *Client) !void {
-        const url = try std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.base_url, ping_api.GetPingPath });
-        defer self.allocator.free(url);
-
-        const uri = try std.Uri.parse(url);
-
-        const connection = try self.transport.connect(self.client);
-
-        try ping_api.runPing(self.client, connection, uri);
+        try ping_api.runPing(self);
     }
 
     pub fn containers(self: *Client) @import("api/containers.zig").Containers {
@@ -100,92 +85,70 @@ pub const Client = struct {
             return std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.base_url, target });
         }
 
-        const vers = self.negotiated_version orelse error.ApiVersionNotNegotiated;
+        const vers = self.negotiated_version orelse return error.ApiVersionNotNegotiated;
         return std.fmt.allocPrint(self.allocator, "{s}/v{d}.{d}{s}", .{ self.base_url, vers.major, vers.minor, target });
     }
 
-    fn requestBytes(self: *Client, options: RequestOptions) ![]u8 {
+    pub fn request(self: *Client, options: RequestOptions) !dusty.ClientResponse {
         const url = try self.buildUrl(options.target, options.versioned);
         defer self.allocator.free(url);
 
-        const uri = try std.Uri.parse(url);
-        const connection = try self.transport.connect(self.client);
+        var headers = try dusty.Headers.init(self.allocator, 2);
+        defer headers.deinit(self.allocator);
 
-        var req = blk: {
-            errdefer self.client.connection_pool.release(connection, self.io);
+        try headers.put("Accept-Encoding", "identity");
 
-            break :blk try self.client.request(
-                options.method,
-                uri,
-                .{
-                    .connection = connection,
-                    .redirect_behavior = .unhandled,
-                    .headers = .{
-                        .accept_encoding = .{ .override = "identity" },
-                        .content_type = if (options.content_type) |value|
-                            .{ .override = value }
-                        else
-                            .default,
-                    },
-                },
-            );
-        };
-        defer req.deinit();
-
-        if (options.payload) |payload| {
-            req.transfer_encoding = .{
-                .content_length = payload.len,
-            };
-
-            var body_writer = try req.sendBodyUnflushed(&.{});
-
-            try body_writer.writer.writeAll(payload);
-            try body_writer.end();
-
-            try req.connection.?.flush();
-        } else {
-            try req.sendBodiless();
+        if (options.content_type) |content_type| {
+            try headers.put("Content-Type", content_type);
         }
 
-        var resp = try req.receiveHead(&.{});
+        var response = try self.client.fetch(url, .{
+            .method = options.method,
+            .headers = &headers,
+            .body = options.payload,
+            .max_redirects = 0,
+            .decompress = false,
+            .timeout = .{
+                .duration = .{
+                    .raw = .fromSeconds(3),
+                    .clock = .awake,
+                },
+            },
+            .unix_socket_path = switch (self.transport) {
+                .unix => |unix| unix.socket_path,
+                .tcp => null,
+            },
+        });
+        errdefer response.deinit();
 
-        if (resp.head.status != options.expected_status) {
+        if (response.status() != options.expected_status) {
             return error.UnexpectedHttpStatus;
         }
 
-        if (resp.head.content_encoding != .identity) {
+        if (response.contentEncoding() != .identity) {
             return error.UnsupportedContentEncoding;
         }
 
-        var transfer_buffer: [4 * 1028]u8 = undefined;
-        const reader = resp.reader(&transfer_buffer);
+        response.max_response_size = @min(response.max_response_size, options.max_body_bytes);
 
-        const body = reader.allocRemaining(self.allocator, .limited(options.max_body_bytes +| 1)) catch |err| switch (err) {
-            error.ReadFailed => return resp.bodyErr() orelse err,
-            else => return err,
-        };
-        errdefer self.allocator.free(body);
-
-        if (body.len > options.max_body_bytes) {
-            return error.StreamTooLong;
-        }
-
-        return body;
+        return response;
     }
 
     pub fn getJson(self: *Client, comptime T: type, options: RequestOptions) !std.json.Parsed(T) {
-        const body = try self.requestBytes(options);
-        defer self.allocator.free(body);
+        var response = try self.request(options);
+        defer response.deinit();
 
-        return std.json.parseFromSlice(T, self.allocator, body, .{ .ignore_unknown_fields = true, .allocate = .alloc_always });
+        const body = try response.body() orelse return error.EmptyResponseBody;
+
+        return std.json.parseFromSlice(T, self.allocator, body, .{
+            .allocate = .alloc_always,
+            .ignore_unknown_fields = true,
+        });
     }
 
     pub fn deinit(self: *Client) void {
         self.client.deinit();
-        self.allocator.destroy(self.client);
-
         self.allocator.free(self.base_url);
-
         self.transport.deinit(self.allocator);
 
         self.* = undefined;
@@ -208,7 +171,7 @@ fn servePing(io: std.Io, listener: *std.Io.net.Server, status: http.Status, body
 
     try std.testing.expectEqual(http.Method.GET, request.head.method);
 
-    try std.testing.expectEqual("/_ping", request.head.target);
+    try std.testing.expectEqualStrings("/_ping", request.head.target);
 
     try request.respond(body, .{ .status = status, .keep_alive = false });
 }
@@ -220,7 +183,7 @@ test "client ping HTTP over a tcp connection" {
     const cases = [_]struct {
         status: http.Status,
         body: []const u8,
-        expected: anyerror,
+        expected: ?anyerror,
     }{ .{
         .status = .ok,
         .body = "OK",
@@ -240,35 +203,39 @@ test "client ping HTTP over a tcp connection" {
         var server_task = try io.concurrent(servePing, .{ io, &listener, case.status, case.body });
         defer server_task.cancel(io) catch {};
 
-        var client = try Client.init(allocator, io, .{ .transport = .{ .tcp = .{
-            .host = "127.0.0.1",
-            .port = listener.socket.address.getPort(),
-        } } });
+        const config: TransportConfig = .{
+            .tcp = .{
+                .host = "127.0.0.1",
+                .port = listener.socket.address.getPort(),
+            },
+        };
+
+        var client = try Client.init(allocator, io, .{ .transport = config });
         defer client.deinit();
 
-        const url = try std.fmt.allocPrint(allocator, "{s}/_ping}", .{client.base_url});
-        defer allocator.free(url);
-
-        const uri = try std.Uri.parse(url);
-
-        const connection = try client.transport.connect();
-
-        const result = ping_api.runPing(client.client, connection, uri);
-
-        try server_task.await(io);
+        const result = client.ping();
 
         if (case.expected) |expected| {
             try std.testing.expectError(expected, result);
         } else {
             try result;
         }
+
+        try server_task.await(io);
     }
 }
 
 test "client initialization does not require a running daemon" {
-    var client = try Client.init(std.testing.allocator, std.testing.io, .{ .transport = .{ .tcp = .{
-        .host = "127.0.0.1",
-        .port = 0,
-    } } });
+    const config: TransportConfig = .{
+        .tcp = .{
+            .host = "127.0.0.1",
+            .port = 0,
+        },
+    };
+    var client = try Client.init(
+        std.testing.allocator,
+        std.testing.io,
+        .{ .transport = config },
+    );
     defer client.deinit();
 }

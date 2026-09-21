@@ -10,6 +10,15 @@ pub fn build(b: *std.Build) void {
         .optimize = optimize,
     });
 
+    const dusty = b.dependency("dusty", .{
+        .target = target,
+        .optimize = optimize,
+        .use_tls = false,
+        .use_http2 = false,
+    });
+
+    dockerz.addImport("dusty", dusty.module("dusty"));
+
     // Tests
     const tests = b.addTest(.{
         .root_module = dockerz,

@@ -21,15 +21,16 @@ pub fn query_params_tu_url_encoded_string(
     try writer.writeByte('?');
 
     for (params, 0..) |param, i| {
-        if (i == 0) try writer.writeByte('&');
+        if (i != 0) try writer.writeByte('&');
 
         const key: std.Uri.Component = .{ .raw = param.name };
         try key.formatEscaped(writer);
         try writer.writeByte('=');
 
         switch (param.value) {
-            .int => |value| try writer.print("{d}", value),
-            .uint => |value| try writer.print("{d}", value),
+            .int => |value| try writer.print("{d}", .{value}),
+            .uint => |value| try writer.print("{d}", .{value}),
+            .boolean => |value| try writer.writeAll(if (value) "true" else "false"),
             .string => |value| {
                 const component: std.Uri.Component = .{ .raw = value };
                 try component.formatEscaped(writer);

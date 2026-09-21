@@ -1,7 +1,7 @@
 const std = @import("std");
 const models = @import("../generated/models.zig");
 
-const http = std.http;
+const Client = @import("../client.zig").Client;
 
 pub const GetVersionPath = "/version";
 
@@ -79,12 +79,12 @@ pub const SupportedVersions = struct {
     }
 
     pub fn negotiate(self: SupportedVersions, server: SupportedVersions) SupportedVersionsError!Version {
-        if (self.min_supported_version.order(self.max_supported_version) == .gt or server.min_supported_version.order(server.min_supported_version) == .gt) {
+        if (self.min_supported_version.order(self.max_supported_version) == .gt or server.min_supported_version.order(server.max_supported_version) == .gt) {
             return SupportedVersionsError.InvalidVersionRange;
         }
 
         const lower = if (self.min_supported_version.order(server.min_supported_version) == .gt) self.min_supported_version else server.min_supported_version;
-        const upper = if (self.max_supported_version.order(server.max_supported_version) == .gt) self.max_supported_version else server.max_supported_version;
+        const upper = if (self.max_supported_version.order(server.max_supported_version) == .lt) self.max_supported_version else server.max_supported_version;
 
         if (lower.order(upper) == .gt) {
             return SupportedVersionsError.NoCompatibleApiVersion;
@@ -115,37 +115,15 @@ fn negotiateVersionBody(allocator: std.mem.Allocator, body: []const u8) !Version
     return suppored_versions.negotiate(server);
 }
 
-pub fn getVersion(client: *http.Client, connection: *http.Client.Connection, uri: std.Uri) !Version {
-    var req = blk: {
-        errdefer client.connection_pool.release(connection, client.io);
+pub fn getVersion(client: *Client) !Version {
+    var response = try client.request(.{
+        .target = GetVersionPath,
+        .versioned = false,
+        .max_body_bytes = 64 * 1024,
+    });
+    defer response.deinit();
 
-        break :blk try client.request(.GET, uri, .{ .connection = connection, .redirect_behavior = .unhandled, .headers = .{ .accept_encoding = .{ .override = "identity" } } });
-    };
-    defer req.deinit();
-
-    try req.sendBodiless();
-
-    var resp = try req.receiveHead(&.{});
-
-    const status = resp.head.status;
-    const encoding = resp.head.content_encoding;
-
-    var transfer_buff: [1024]u8 = undefined;
-    const reader = resp.reader(&transfer_buff);
-
-    if (status != .ok) {
-        return error.UnexpectedHttpStatus;
-    }
-
-    if (encoding != .identity) {
-        return error.UnsupportedContentEncoding;
-    }
-
-    const body = reader.allocRemaining(client.allocator, .limited(64 * 1024)) catch |err| switch (err) {
-        error.ReadFailed => return resp.bodyErr() orelse err,
-        else => return err,
-    };
-    defer client.allocator.free(body);
+    const body = try response.body() orelse return error.MissingApiVersion;
 
     return negotiateVersionBody(client.allocator, body);
 }
