@@ -280,125 +280,125 @@ pub const Containers = struct {
         });
         defer resp.deinit();
     }
+
+    pub fn rename(self: Containers, name_or_id: []const u8, new_name: []const u8) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        const params = [_]QueryParam{
+            .{
+                .name = "name",
+                .value = .{
+                    .string = new_name,
+                },
+            },
+        };
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Rename,
+            .{std.fmt.alt(id, .formatEscaped)},
+            params,
+        );
+
+        var resp = try self.client.request(.{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .no_content,
+        });
+        defer resp.deinit();
+    }
+
+    pub fn kill(self: Containers, name_or_id: []const u8, options: KillOptions) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        var params: [1]QueryParam = undefined;
+        var count = 0;
+
+        if (options.signal) |value| {
+            params[count] = .{
+                .name = "signal",
+                .value = .{
+                    .string = value,
+                },
+            };
+
+            count += 1;
+        }
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Kill,
+            .{std.fmt.alt(id, .formatEscaped)},
+            params,
+        );
+
+        var resp = try self.client.request(.{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .no_content,
+        });
+        defer resp.deinit();
+    }
+
+    pub fn restart(self: Containers, name_or_id: []const u8, options: RestartOptions) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        var params: [2]QueryParam = undefined;
+        var count = 0;
+
+        if (options.signal) |value| {
+            params[count] = .{
+                .name = "signal",
+                .value = .{
+                    .string = value,
+                },
+            };
+
+            count += 1;
+        }
+
+        if (options.timeout_seconds) |value| {
+            params[count] = .{
+                .name = "t",
+                .value = .{
+                    .int = value,
+                },
+            };
+        }
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Restart,
+            .{std.fmt.alt(id, .formatEscaped)},
+            params,
+        );
+
+        var resp = try self.client.request(.{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .no_content,
+        });
+        defer resp.deinit();
+    }
 };
-
-pub fn rename(self: Containers, name_or_id: []const u8, new_name: []const u8) !void {
-    var target: std.Io.Writer.Allocating = .init(self.client.allocator);
-    defer target.deinit();
-
-    const id: std.Uri.Component = .{
-        .raw = name_or_id,
-    };
-
-    const params = [_]QueryParam{
-        .{
-            .name = "name",
-            .value = .{
-                .string = new_name,
-            },
-        },
-    };
-
-    try writeTargetUrl(
-        &target.writer,
-        Paths.Rename,
-        .{std.fmt.alt(id, .formatEscaped)},
-        params,
-    );
-
-    var resp = try self.client.request(.{
-        .target = target.writer.buffered(),
-        .versioned = true,
-        .method = .post,
-        .expected_status = .no_content,
-    });
-    defer resp.deinit();
-}
-
-pub fn kill(self: Containers, name_or_id: []const u8, options: KillOptions) !void {
-    var target: std.Io.Writer.Allocating = .init(self.client.allocator);
-    defer target.deinit();
-
-    const id: std.Uri.Component = .{
-        .raw = name_or_id,
-    };
-
-    var params: [1]QueryParam = undefined;
-    var count = 0;
-
-    if (options.signal) |value| {
-        params[count] = .{
-            .name = "signal",
-            .value = .{
-                .string = value,
-            },
-        };
-
-        count += 1;
-    }
-
-    try writeTargetUrl(
-        &target.writer,
-        Paths.Kill,
-        .{std.fmt.alt(id, .formatEscaped)},
-        params,
-    );
-
-    var resp = try self.client.request(.{
-        .target = target.writer.buffered(),
-        .versioned = true,
-        .method = .post,
-        .expected_status = .no_content,
-    });
-    defer resp.deinit();
-}
-
-pub fn restart(self: Containers, name_or_id: []const u8, options: RestartOptions) !void {
-    var target: std.Io.Writer.Allocating = .init(self.client.allocator);
-    defer target.deinit();
-
-    const id: std.Uri.Component = .{
-        .raw = name_or_id,
-    };
-
-    var params: [2]QueryParam = undefined;
-    var count = 0;
-
-    if (options.signal) |value| {
-        params[count] = .{
-            .name = "signal",
-            .value = .{
-                .string = value,
-            },
-        };
-
-        count += 1;
-    }
-
-    if (options.timeout_seconds) |value| {
-        params[count] = .{
-            .name = "t",
-            .value = .{
-                .int = value,
-            },
-        };
-    }
-
-    try writeTargetUrl(
-        &target.writer,
-        Paths.Restart,
-        .{std.fmt.alt(id, .formatEscaped)},
-        params,
-    );
-
-    var resp = try self.client.request(.{
-        .target = target.writer.buffered(),
-        .versioned = true,
-        .method = .post,
-        .expected_status = .no_content,
-    });
-    defer resp.deinit();
-}
 
 test "integration: container list test" {
     if (!@import("test_options").docker_integration) {
