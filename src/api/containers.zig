@@ -17,6 +17,15 @@ pub const ListOptions = struct {
     limit: ?u32 = null,
 };
 
+pub const StartOptions = struct {
+    detach_keys: ?[]const u8 = null,
+};
+
+pub const StopOptions = struct {
+    signal: ?[]const u8 = null,
+    timeout_signal: ?i32 = null,
+};
+
 pub const ContainerCreateRequest = struct {
     config: models.ContainerConfig,
     host_config: ?models.HostConfig,
@@ -134,4 +143,107 @@ pub const Containers = struct {
             .content_type = "application/json",
         });
     }
+
+    pub fn start(self: Containers, name_or_id: []const u8, options: StartOptions) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        var params: [1]QueryParam = undefined;
+        var count = 0;
+
+        if (options.detach_keys) |value| {
+            params[count] = .{
+                .name = "detachKeys",
+                .value = .{
+                    .string = value,
+                },
+            };
+
+            count += 1;
+        }
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Start,
+            .{std.fmt.alt(id, .formatEscaped)},
+            params[0..count],
+        );
+
+        var resp = try self.client.request(.{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .no_content,
+        });
+        defer resp.deinit();
+    }
+
+    pub fn stop(self: Containers, name_or_id: []const u8, options: StopOptions) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        var params: [2]QueryParam = undefined;
+        var count = 0;
+
+        if (options.signal) |value| {
+            params[count] = .{ .name = "signal", .value = .{ .string = value } };
+            count += 1;
+        }
+
+        if (options.timeout_signal) |value| {
+            params[count] = .{ .name = "t", .value = .{ .int = value } };
+            count += 1;
+        }
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Stop,
+            .{std.fmt.alt(id, .formatEscaped)},
+            params,
+        );
+
+        var resp = try self.client.request(.{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .no_content,
+        });
+        defer resp.deinit();
+    }
 };
+
+test "integration: container list test" {
+    if (!@import("test_options").docker_integration) {
+        return error.SkipZigTest;
+    }
+
+    var client = try Client.init(
+        std.testing.allocator,
+        std.testing.io,
+        .{
+            .transport = .{ .unix = "/var/run/docker.sock" },
+        },
+    );
+    defer client.deinit();
+
+    try client.connect();
+
+    const result = try client.containers().list(
+        .{
+            .all = true,
+        },
+    );
+    defer result.deinit();
+
+    std.debug.print("{any}", .{result.value});
+
+    try std.testing.expect(result.value.len > 0);
+}
