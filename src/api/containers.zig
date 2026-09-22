@@ -10,6 +10,11 @@ const Paths = struct {
     const Get = "/containers/{f}/json";
     const Start = "/containers/{f}/start";
     const Stop = "/containers/{f}/stop";
+    const Pause = "/containers/{f}/pause";
+    const Unpause = "/containers/{f}/unpause";
+    const Rename = "/containers/{f}/restart";
+    const Kill = "/containers/{f}/kill";
+    const Restart = "/containers/{f}/restart";
 };
 
 pub const ListOptions = struct {
@@ -24,6 +29,15 @@ pub const StartOptions = struct {
 pub const StopOptions = struct {
     signal: ?[]const u8 = null,
     timeout_signal: ?i32 = null,
+};
+
+pub const KillOptions = struct {
+    signal: ?[]const u8 = null,
+};
+
+pub const RestartOptions = struct {
+    signal: ?[]const u8 = null,
+    timeout_seconds: ?i32 = null,
 };
 
 pub const ContainerCreateRequest = struct {
@@ -218,7 +232,173 @@ pub const Containers = struct {
         });
         defer resp.deinit();
     }
+
+    pub fn pause(self: Containers, name_or_id: []const u8) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Pause,
+            .{std.fmt.alt(id, .formatEscaped)},
+            &.{},
+        );
+
+        var resp = try self.client.request(.{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .no_content,
+        });
+        defer resp.deinit();
+    }
+
+    pub fn unpause(self: Containers, name_or_id: []const u8) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Unpause,
+            .{std.fmt.alt(id, .formatEscaped)},
+            &.{},
+        );
+
+        var resp = try self.client.request(.{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .no_content,
+        });
+        defer resp.deinit();
+    }
 };
+
+pub fn rename(self: Containers, name_or_id: []const u8, new_name: []const u8) !void {
+    var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+    defer target.deinit();
+
+    const id: std.Uri.Component = .{
+        .raw = name_or_id,
+    };
+
+    const params = [_]QueryParam{
+        .{
+            .name = "name",
+            .value = .{
+                .string = new_name,
+            },
+        },
+    };
+
+    try writeTargetUrl(
+        &target.writer,
+        Paths.Rename,
+        .{std.fmt.alt(id, .formatEscaped)},
+        params,
+    );
+
+    var resp = try self.client.request(.{
+        .target = target.writer.buffered(),
+        .versioned = true,
+        .method = .post,
+        .expected_status = .no_content,
+    });
+    defer resp.deinit();
+}
+
+pub fn kill(self: Containers, name_or_id: []const u8, options: KillOptions) !void {
+    var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+    defer target.deinit();
+
+    const id: std.Uri.Component = .{
+        .raw = name_or_id,
+    };
+
+    var params: [1]QueryParam = undefined;
+    var count = 0;
+
+    if (options.signal) |value| {
+        params[count] = .{
+            .name = "signal",
+            .value = .{
+                .string = value,
+            },
+        };
+
+        count += 1;
+    }
+
+    try writeTargetUrl(
+        &target.writer,
+        Paths.Kill,
+        .{std.fmt.alt(id, .formatEscaped)},
+        params,
+    );
+
+    var resp = try self.client.request(.{
+        .target = target.writer.buffered(),
+        .versioned = true,
+        .method = .post,
+        .expected_status = .no_content,
+    });
+    defer resp.deinit();
+}
+
+pub fn restart(self: Containers, name_or_id: []const u8, options: RestartOptions) !void {
+    var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+    defer target.deinit();
+
+    const id: std.Uri.Component = .{
+        .raw = name_or_id,
+    };
+
+    var params: [2]QueryParam = undefined;
+    var count = 0;
+
+    if (options.signal) |value| {
+        params[count] = .{
+            .name = "signal",
+            .value = .{
+                .string = value,
+            },
+        };
+
+        count += 1;
+    }
+
+    if (options.timeout_seconds) |value| {
+        params[count] = .{
+            .name = "t",
+            .value = .{
+                .int = value,
+            },
+        };
+    }
+
+    try writeTargetUrl(
+        &target.writer,
+        Paths.Restart,
+        .{std.fmt.alt(id, .formatEscaped)},
+        params,
+    );
+
+    var resp = try self.client.request(.{
+        .target = target.writer.buffered(),
+        .versioned = true,
+        .method = .post,
+        .expected_status = .no_content,
+    });
+    defer resp.deinit();
+}
 
 test "integration: container list test" {
     if (!@import("test_options").docker_integration) {
