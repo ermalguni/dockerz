@@ -19,7 +19,21 @@ pub fn build(b: *std.Build) void {
 
     dockerz.addImport("dusty", dusty.module("dusty"));
 
-    // Tests
+    const docker_integration = b.option(
+        bool,
+        "docker-integration",
+        "Run integration tests against the local docker socket",
+    ) orelse false;
+
+    const test_options = b.addOptions();
+    test_options.addOption(
+        bool,
+        "docker_integration",
+        docker_integration,
+    );
+    dockerz.addOptions("test_options", test_options);
+
+    // tests
     const tests = b.addTest(.{
         .root_module = dockerz,
     });
