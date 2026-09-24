@@ -15,6 +15,8 @@ const Paths = struct {
     const Rename = "/containers/{f}/restart";
     const Kill = "/containers/{f}/kill";
     const Restart = "/containers/{f}/restart";
+    const Remove = "/containers/{f}";
+    const Prune = "/containers/prine";
 };
 
 pub const ListOptions = struct {
@@ -38,6 +40,22 @@ pub const KillOptions = struct {
 pub const RestartOptions = struct {
     signal: ?[]const u8 = null,
     timeout_seconds: ?i32 = null,
+};
+
+pub const RemoveOptions = struct {
+    force: ?bool = null,
+    volumes: ?bool = null,
+    link: ?bool = null,
+};
+
+pub const PruneOptions = struct {
+    labels: ?[]const []const u8 = null,
+    exclude_labels: ?[]const []const u8 = null,
+};
+
+pub const PruneResponse = struct {
+    ContainersDeleted: ?[]const []const u8 = null,
+    SpaceReclaimed: ?i64 = null,
 };
 
 pub const ContainerCreateRequest = struct {
@@ -397,6 +415,92 @@ pub const Containers = struct {
             .expected_status = .no_content,
         });
         defer resp.deinit();
+    }
+
+    pub fn remove(self: Containers, name_or_id: []const u8, options: RemoveOptions) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const id: std.Uri.Component = .{
+            .raw = name_or_id,
+        };
+
+        var params: [3]QueryParam = undefined;
+        var count = 0;
+
+        if (options.force) |value| {
+            params[count] = .{
+                .name = "force",
+                .value = .{
+                    .boolean = value,
+                },
+            };
+
+            count += 1;
+        }
+
+        if (options.link) |value| {
+            params[count] = .{
+                .name = "link",
+                .value = .{
+                    .boolean = value,
+                },
+            };
+
+            count += 1;
+        }
+
+        if (options.volumes) |value| {
+            params[count] = .{
+                .name = "v",
+                .value = .{
+                    .boolean = value,
+                },
+            };
+
+            count += 1;
+        }
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Remove,
+            .{std.fmt.alt(id, .formatEscaped)},
+            params[0..count],
+        );
+
+        var resp = try self.client.request(.{ .target = target.writer.buffered(), .versioned = true, .method = .delete, .expected_status = .no_content });
+        resp.deinit();
+    }
+
+    pub fn prune(self: Containers, options: PruneOptions) !void {
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
+        defer target.deinit();
+
+        const filters = try std.json.Stringify.valueAlloc(self.client.allocator, .{
+            .label = options.labels,
+            .@"label!" = options.exclude_labels,
+        }, .{
+            .emit_null_optional_fields = false,
+        });
+
+        var params = [_]QueryParam{
+            .{
+                .name = "filters",
+                .value = .{
+                    .string = filters,
+                },
+            },
+        };
+
+        try writeTargetUrl(
+            &target.writer,
+            Paths.Prune,
+            &.{},
+            &params,
+        );
+
+        var resp = try self.client.request(.{ .target = target.writer.buffered(), .versioned = true, .method = .delete, .expected_status = .no_content });
+        resp.deinit();
     }
 };
 
