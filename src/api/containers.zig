@@ -2,22 +2,10 @@ const std = @import("std");
 const Client = @import("../client.zig").Client;
 const models = @import("../generated/models.zig");
 const QueryParam = @import("../http.zig").QueryParam;
+const QueryParams = @import("../http.zig").QueryParams;
+const writeEndpointTarget = @import("../http.zig").writeEndpointTarget;
 const writeTargetUrl = @import("../http.zig").writeTargetURL;
-
-const Paths = struct {
-    const List = "/containers/json";
-    const Create = "/containers/create";
-    const Get = "/containers/{f}/json";
-    const Start = "/containers/{f}/start";
-    const Stop = "/containers/{f}/stop";
-    const Pause = "/containers/{f}/pause";
-    const Unpause = "/containers/{f}/unpause";
-    const Rename = "/containers/{f}/restart";
-    const Kill = "/containers/{f}/kill";
-    const Restart = "/containers/{f}/restart";
-    const Remove = "/containers/{f}";
-    const Prune = "/containers/prine";
-};
+const Endpoints = @import("./container_endpoints.zig");
 
 pub const ListOptions = struct {
     all: ?bool = null,
@@ -96,30 +84,11 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        var params: [2]QueryParam = undefined;
-        var count: u8 = 0;
-
-        if (options.all) |value| {
-            params[count] = .{ .name = "all", .value = .{
-                .boolean = value,
-            } };
-
-            count += 1;
-        }
-
-        if (options.limit) |value| {
-            params[count] = .{ .name = "limit", .value = .{
-                .int = value,
-            } };
-
-            count += 1;
-        }
-
-        try writeTargetUrl(
-            writer,
-            Paths.List,
+        try writeEndpointTarget(
+            &target.writer,
+            Endpoints.List.path,
             .{},
-            params[0..count],
+            options,
         );
 
         return self.client.getJson([]const models.ContainerSummary, .{
@@ -136,11 +105,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Get,
+            Endpoints.Get,
             .{std.fmt.alt(id, .formatEscaped)},
-            &.{},
+            .{},
         );
 
         return self.client.getJson(models.ContainerInspectResponse, .{
@@ -155,7 +124,12 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        try writeTargetUrl(writer, Paths.Create, .{}, params);
+        try writeTargetUrl(
+            writer,
+            Endpoints.Create.path,
+            .{},
+            params,
+        );
 
         const payload = try std.json.Stringify.valueAlloc(
             self.client.allocator,
@@ -184,25 +158,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        var params: [1]QueryParam = undefined;
-        var count = 0;
-
-        if (options.detach_keys) |value| {
-            params[count] = .{
-                .name = "detachKeys",
-                .value = .{
-                    .string = value,
-                },
-            };
-
-            count += 1;
-        }
-
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Start,
+            Endpoints.Start,
             .{std.fmt.alt(id, .formatEscaped)},
-            params[0..count],
+            options,
         );
 
         var resp = try self.client.request(.{
@@ -222,24 +182,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        var params: [2]QueryParam = undefined;
-        var count = 0;
-
-        if (options.signal) |value| {
-            params[count] = .{ .name = "signal", .value = .{ .string = value } };
-            count += 1;
-        }
-
-        if (options.timeout_signal) |value| {
-            params[count] = .{ .name = "t", .value = .{ .int = value } };
-            count += 1;
-        }
-
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Stop,
+            Endpoints.Stop,
             .{std.fmt.alt(id, .formatEscaped)},
-            params,
+            options,
         );
 
         var resp = try self.client.request(.{
@@ -259,11 +206,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Pause,
+            Endpoints.Pause,
             .{std.fmt.alt(id, .formatEscaped)},
-            &.{},
+            .{},
         );
 
         var resp = try self.client.request(.{
@@ -283,11 +230,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Unpause,
+            Endpoints.Unpause,
             .{std.fmt.alt(id, .formatEscaped)},
-            &.{},
+            .{},
         );
 
         var resp = try self.client.request(.{
@@ -307,20 +254,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        const params = [_]QueryParam{
-            .{
-                .name = "name",
-                .value = .{
-                    .string = new_name,
-                },
-            },
-        };
-
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Rename,
+            Endpoints.Rename,
             .{std.fmt.alt(id, .formatEscaped)},
-            params,
+            .{ .name = new_name },
         );
 
         var resp = try self.client.request(.{
@@ -340,25 +278,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        var params: [1]QueryParam = undefined;
-        var count = 0;
-
-        if (options.signal) |value| {
-            params[count] = .{
-                .name = "signal",
-                .value = .{
-                    .string = value,
-                },
-            };
-
-            count += 1;
-        }
-
-        try writeTargetUrl(
+        writeEndpointTarget(
             &target.writer,
-            Paths.Kill,
+            Endpoints.Kill,
             .{std.fmt.alt(id, .formatEscaped)},
-            params,
+            options,
         );
 
         var resp = try self.client.request(.{
@@ -378,34 +302,11 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        var params: [2]QueryParam = undefined;
-        var count = 0;
-
-        if (options.signal) |value| {
-            params[count] = .{
-                .name = "signal",
-                .value = .{
-                    .string = value,
-                },
-            };
-
-            count += 1;
-        }
-
-        if (options.timeout_seconds) |value| {
-            params[count] = .{
-                .name = "t",
-                .value = .{
-                    .int = value,
-                },
-            };
-        }
-
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Restart,
+            Endpoints.Restart,
             .{std.fmt.alt(id, .formatEscaped)},
-            params,
+            options,
         );
 
         var resp = try self.client.request(.{
@@ -425,50 +326,21 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        var params: [3]QueryParam = undefined;
-        var count = 0;
-
-        if (options.force) |value| {
-            params[count] = .{
-                .name = "force",
-                .value = .{
-                    .boolean = value,
-                },
-            };
-
-            count += 1;
-        }
-
-        if (options.link) |value| {
-            params[count] = .{
-                .name = "link",
-                .value = .{
-                    .boolean = value,
-                },
-            };
-
-            count += 1;
-        }
-
-        if (options.volumes) |value| {
-            params[count] = .{
-                .name = "v",
-                .value = .{
-                    .boolean = value,
-                },
-            };
-
-            count += 1;
-        }
-
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Remove,
+            Endpoints.Remove,
             .{std.fmt.alt(id, .formatEscaped)},
-            params[0..count],
+            options,
         );
 
-        var resp = try self.client.request(.{ .target = target.writer.buffered(), .versioned = true, .method = .delete, .expected_status = .no_content });
+        var resp = try self.client.request(
+            .{
+                .target = target.writer.buffered(),
+                .versioned = true,
+                .method = .delete,
+                .expected_status = .no_content,
+            },
+        );
         resp.deinit();
     }
 
@@ -482,24 +354,23 @@ pub const Containers = struct {
         }, .{
             .emit_null_optional_fields = false,
         });
+        defer self.client.allocator.free(filters);
 
-        var params = [_]QueryParam{
-            .{
-                .name = "filters",
-                .value = .{
-                    .string = filters,
-                },
-            },
-        };
-
-        try writeTargetUrl(
+        try writeEndpointTarget(
             &target.writer,
-            Paths.Prune,
-            &.{},
-            &params,
+            Endpoints.Prune.path,
+            .{},
+            .{ .filters = filters },
         );
 
-        var resp = try self.client.request(.{ .target = target.writer.buffered(), .versioned = true, .method = .delete, .expected_status = .no_content });
+        var resp = try self.client.request(
+            .{
+                .target = target.writer.buffered(),
+                .versioned = true,
+                .method = .delete,
+                .expected_status = .no_content,
+            },
+        );
         resp.deinit();
     }
 };
