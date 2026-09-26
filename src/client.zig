@@ -33,6 +33,15 @@ pub const Client = struct {
         max_body_bytes: usize = 8 * 1024 * 1024,
         payload: ?[]const u8 = null,
         content_type: ?[]const u8 = null,
+        registry_auth: ?[]const u8 = null,
+        stream: bool = false,
+        timeout: std.Io.Timeout = .{
+            .duration = .{
+                .raw = .fromSeconds(3),
+                .clock = .awake,
+            },
+        },
+        registry_config: ?[]const u8 = null,
     };
 
     pub fn init(allocator: std.mem.Allocator, io: std.Io, config: ClientConfig) !Client {
@@ -97,7 +106,7 @@ pub const Client = struct {
         const url = try self.buildUrl(options.target, options.versioned);
         defer self.allocator.free(url);
 
-        var headers = try dusty.Headers.init(self.allocator, 2);
+        var headers = try dusty.Headers.init(self.allocator, 4);
         defer headers.deinit(self.allocator);
 
         try headers.put("Accept-Encoding", "identity");
@@ -106,18 +115,22 @@ pub const Client = struct {
             try headers.put("Content-Type", content_type);
         }
 
+        if (options.registry_auth) |reg_auth| {
+            try headers.put("X-Registry-Auth", reg_auth);
+        }
+
+        if (options.registry_config) |reg_config| {
+            try headers.put("X-Registry-Config", reg_config);
+        }
+
         var response = try self.client.fetch(url, .{
             .method = options.method,
             .headers = &headers,
             .body = options.payload,
             .max_redirects = 0,
             .decompress = false,
-            .timeout = .{
-                .duration = .{
-                    .raw = .fromSeconds(3),
-                    .clock = .awake,
-                },
-            },
+            .timeout = options.timeout,
+            .stream = options.stream,
             .unix_socket_path = switch (self.transport) {
                 .unix => |unix| unix.socket_path,
                 .tcp => null,

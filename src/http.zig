@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const QueryValue = union(enum) {
     string: []const u8,
+    strings: []const []const u8,
     int: i64,
     uint: u64,
     boolean: bool,
@@ -62,25 +63,36 @@ pub fn query_params_tu_url_encoded_string(
     writer: *std.Io.Writer,
     params: []const QueryParam,
 ) !void {
-    if (params.len == 0) return;
+    var first = true;
 
-    try writer.writeByte('?');
+    for (params) |param| {
+        const count: usize = switch (param.value) {
+            .strings => |values| values.len,
+            else => 1,
+        };
 
-    for (params, 0..) |param, i| {
-        if (i != 0) try writer.writeByte('&');
+        for (0..count) |index| {
+            try writer.writeByte(if (first) '?' else '&');
+            first = false;
 
-        const key: std.Uri.Component = .{ .raw = param.name };
-        try key.formatEscaped(writer);
-        try writer.writeByte('=');
+            const key: std.Uri.Component = .{ .raw = param.name };
+            try key.formatEscaped(writer);
+            try writer.writeByte('=');
 
-        switch (param.value) {
-            .int => |value| try writer.print("{d}", .{value}),
-            .uint => |value| try writer.print("{d}", .{value}),
-            .boolean => |value| try writer.writeAll(if (value) "true" else "false"),
-            .string => |value| {
-                const component: std.Uri.Component = .{ .raw = value };
-                try component.formatEscaped(writer);
-            },
+            switch (param.value) {
+                .int => |value| try writer.print("{d}", .{value}),
+                .uint => |value| try writer.print("{d}", .{value}),
+                .boolean => |value| try writer.writeAll(if (value) "true" else "false"),
+                .string => |value| {
+                    const component: std.Uri.Component = .{ .raw = value };
+                    try component.formatEscaped(writer);
+                },
+                .strings => |values| {
+                    const component: std.Uri.Component = .{ .raw = values[index] };
+
+                    try component.formatEscaped(writer);
+                },
+            }
         }
     }
 }
