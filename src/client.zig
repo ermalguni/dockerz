@@ -80,6 +80,10 @@ pub const Client = struct {
         return .{ .client = self };
     }
 
+    pub fn images(self: *Client) @import("api/images.zig").Images {
+        return .{ .client = self };
+    }
+
     fn buildUrl(self: *Client, target: []const u8, versioned: bool) ![]u8 {
         if (!versioned) {
             return std.fmt.allocPrint(self.allocator, "{s}{s}", .{ self.base_url, target });
