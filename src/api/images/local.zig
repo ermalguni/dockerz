@@ -1,6 +1,6 @@
 const std = @import("std");
 pub const Client = @import("../client.zig").Client;
-const Endpoints = @import("./images_endpoints.zig");
+const Endpoints = @import("./local_endpoints.zig");
 const models = @import("../generated/models.zig");
 const writeEndpointTarget = @import("../http.zig").writeEndpointTarget;
 
@@ -30,10 +30,10 @@ pub const PruneResponse = struct {
     SpaceReclaimed: ?i64 = null,
 };
 
-pub const Images = struct {
+pub const Local = struct {
     client: *Client,
 
-    pub fn list(self: Images, options: ListOptions) !std.json.Parsed([]const models.ImageSummary) {
+    pub fn list(self: Local, options: ListOptions) !std.json.Parsed([]const models.ImageSummary) {
         var target: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer target.deinit();
 
@@ -56,7 +56,7 @@ pub const Images = struct {
     }
 
     pub fn get(
-        self: Images,
+        self: Local,
         name_or_id: []const u8,
     ) !std.json.Parsed(models.ImageInspect) {
         var target: std.Io.Writer.Allocating = .init(self.client.allocator);
@@ -85,7 +85,7 @@ pub const Images = struct {
     }
 
     pub fn history(
-        self: Images,
+        self: Local,
         name_or_id: []const u8,
     ) !std.json.Parsed([]const models.ImageHistoryResponseItem) {
         var target: std.Io.Writer.Allocating = .init(self.client.allocator);
@@ -111,7 +111,7 @@ pub const Images = struct {
     }
 
     pub fn tag(
-        self: Images,
+        self: Local,
         name_or_id: []const u8,
         options: TagOptions,
     ) !void {
@@ -139,24 +139,24 @@ pub const Images = struct {
     }
 
     pub fn remove(
-        self: Images,
+        self: Local,
         name_or_id: []const u8,
         options: RemoveOptions,
     ) !std.json.Parsed([]const models.ImageDeleteResponseItem) {
         var target: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer target.deinit();
-    
+
         const name: std.Uri.Component = .{
             .raw = name_or_id,
         };
-    
+
         try writeEndpointTarget(
             &target.writer,
             Endpoints.Remove,
             .{std.fmt.alt(name, .formatEscaped)},
             options,
         );
-    
+
         return self.client.getJson([]const models.ImageDeleteResponseItem, .{
             .target = target.writer.buffered(),
             .versioned = true,
@@ -166,19 +166,19 @@ pub const Images = struct {
     }
 
     pub fn prune(
-        self: Images,
+        self: Local,
         options: PruneOptions,
     ) !std.json.Parsed(PruneResponse) {
         var target: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer target.deinit();
-    
+
         try writeEndpointTarget(
             &target.writer,
             Endpoints.Prune,
             .{},
             options,
         );
-    
+
         return self.client.getJson(PruneResponse, .{
             .target = target.writer.buffered(),
             .versioned = true,

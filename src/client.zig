@@ -80,7 +80,7 @@ pub const Client = struct {
         return .{ .client = self };
     }
 
-    pub fn images(self: *Client) @import("api/images.zig").Images {
+    pub fn images(self: *Client) @import("api/images/root.zig").Images {
         return .{ .client = self };
     }
 
