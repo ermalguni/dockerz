@@ -3,13 +3,10 @@ const Transport = @import("transport/transport.zig").Transport;
 pub const TransportConfig = Transport.Config;
 
 const dusty = @import("dusty");
-
 const models = @import("generated/models.zig");
-const version_api = @import("api/version.zig");
-const ping_api = @import("api/ping.zig");
 
-const Version = version_api.Version;
-const SupportedVersions = version_api.SupportedVersions;
+const system_api = @import("api/system/root.zig");
+const Version = @import("api/system/version.zig").Version;
 
 const http = std.http;
 
@@ -30,6 +27,7 @@ pub const Client = struct {
         versioned: bool = true,
         method: dusty.Method = .get,
         expected_status: dusty.Status = .ok,
+        additional_expected_status: ?dusty.Status = null,
         max_body_bytes: usize = 8 * 1024 * 1024,
         payload: ?[]const u8 = null,
         content_type: ?[]const u8 = null,
@@ -78,11 +76,7 @@ pub const Client = struct {
             return;
         }
 
-        self.negotiated_version = try version_api.getVersion(self);
-    }
-
-    fn ping(self: *Client) !void {
-        try ping_api.runPing(self);
+        self.negotiated_version = try self.system().negotiateVersion();
     }
 
     pub fn containers(self: *Client) @import("api/containers.zig").Containers {
@@ -90,6 +84,18 @@ pub const Client = struct {
     }
 
     pub fn images(self: *Client) @import("api/images/root.zig").Images {
+        return .{ .client = self };
+    }
+
+    pub fn networks(self: *Client) @import("api/networks.zig").Networks {
+        return .{ .client = self };
+    }
+
+    pub fn volumes(self: *Client) @import("api/volumes.zig").Volumes {
+        return .{ .client = self };
+    }
+
+    pub fn system(self: *Client) system_api.System {
         return .{ .client = self };
     }
 
@@ -138,7 +144,12 @@ pub const Client = struct {
         });
         errdefer response.deinit();
 
-        if (response.status() != options.expected_status) {
+        const matches_additional_status = if (options.additional_expected_status) |status|
+            response.status() == status
+        else
+            false;
+
+        if (response.status() != options.expected_status and !matches_additional_status) {
             return error.UnexpectedHttpStatus;
         }
 
@@ -230,7 +241,7 @@ test "client ping HTTP over a tcp connection" {
         var client = try Client.init(allocator, io, .{ .transport = config });
         defer client.deinit();
 
-        const result = client.ping();
+        const result = client.system().ping();
 
         if (case.expected) |expected| {
             try std.testing.expectError(expected, result);
