@@ -108,7 +108,7 @@ pub const Local = struct {
             &target.writer,
             Endpoints.Get,
             .{std.fmt.alt(id, .formatEscaped)},
-            .{},
+            options,
         );
 
         return self.client.getJson(

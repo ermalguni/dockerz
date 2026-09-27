@@ -4,7 +4,6 @@ const models = @import("../generated/models.zig");
 const QueryParam = @import("../http.zig").QueryParam;
 const QueryParams = @import("../http.zig").QueryParams;
 const writeEndpointTarget = @import("../http.zig").writeEndpointTarget;
-const writeTargetUrl = @import("../http.zig").writeTargetURL;
 const Endpoints = @import("./container_endpoints.zig");
 
 pub const ListOptions = struct {
@@ -86,7 +85,7 @@ pub const Containers = struct {
 
         try writeEndpointTarget(
             &target.writer,
-            Endpoints.List.path,
+            Endpoints.List,
             .{},
             options,
         );
@@ -124,9 +123,9 @@ pub const Containers = struct {
 
         const writer = &target.writer;
 
-        try writeTargetUrl(
+        try writeEndpointTarget(
             writer,
-            Endpoints.Create.path,
+            Endpoints.Create,
             .{},
             params,
         );
@@ -170,6 +169,7 @@ pub const Containers = struct {
             .versioned = true,
             .method = .post,
             .expected_status = .no_content,
+            .additional_expected_status = .not_modified,
         });
         defer resp.deinit();
     }
@@ -194,6 +194,7 @@ pub const Containers = struct {
             .versioned = true,
             .method = .post,
             .expected_status = .no_content,
+            .additional_expected_status = .not_modified,
         });
         defer resp.deinit();
     }
