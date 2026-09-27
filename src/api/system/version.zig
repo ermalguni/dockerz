@@ -1,9 +1,8 @@
 const std = @import("std");
-const models = @import("../generated/models.zig");
-
-const Client = @import("../client.zig").Client;
-
-pub const GetVersionPath = "/version";
+const Client = @import("../../client.zig").Client;
+const models = @import("../../generated/models.zig");
+const Endpoints = @import("system_endpoints.zig");
+const writeEndpointTarget = @import("../../http.zig").writeEndpointTarget;
 
 pub const VersionError = error{ MissingDotDelimiter, MissingApiVersion, WrongFormat, WrongMajor, WrongMinor };
 
@@ -94,39 +93,10 @@ pub const SupportedVersions = struct {
     }
 };
 
-pub const suppored_versions: SupportedVersions = .{
+pub const supported_versions: SupportedVersions = .{
     .max_supported_version = .{ .major = 1, .minor = 55 },
-
     .min_supported_version = .{ .major = 1, .minor = 40 },
 };
-
-fn negotiateVersionBody(allocator: std.mem.Allocator, body: []const u8) !Version {
-    const parsed = try std.json.parseFromSlice(models.SystemVersion, allocator, body, .{ .ignore_unknown_fields = true });
-    defer parsed.deinit();
-
-    const max_version = parsed.value.ApiVersion orelse return VersionError.MissingApiVersion;
-    const min_version = parsed.value.MinAPIVersion orelse return VersionError.MissingApiVersion;
-
-    const server: SupportedVersions = .{
-        .max_supported_version = try Version.parse_version(max_version),
-        .min_supported_version = try Version.parse_version(min_version),
-    };
-
-    return suppored_versions.negotiate(server);
-}
-
-pub fn getVersion(client: *Client) !Version {
-    var response = try client.request(.{
-        .target = GetVersionPath,
-        .versioned = false,
-        .max_body_bytes = 64 * 1024,
-    });
-    defer response.deinit();
-
-    const body = try response.body() orelse return error.MissingApiVersion;
-
-    return negotiateVersionBody(client.allocator, body);
-}
 
 test "version parser accepts numeric versions" {
     try std.testing.expectEqual(Version{ .major = 0, .minor = 0 }, try Version.parse_version("0.0"));
