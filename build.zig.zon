@@ -8,6 +8,10 @@
             .url = "git+https://github.com/lalinsky/dusty?ref=v0.3.1#494f856d1795cfbf6180f6f8e5a80665d8114174",
             .hash = "dusty-0.3.1-Qdw7Rpd3IABFjZ0h7ymC-j2FkkcPRA52RYSW6AMojKlY",
         },
+        .zig_yaml = .{
+            .url = "git+https://github.com/ermalguni/zig-yaml#4029cc5e333f7f08b8a26f4aab695bed731be9b6",
+            .hash = "zig_yaml-0.3.5-C1161jkzAwD2LYIN7x7fOjiTrDHozwh-RjCJE51bchA_",
+        },
     },
     .paths = .{
         "build.zig",

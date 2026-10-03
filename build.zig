@@ -16,8 +16,13 @@ pub fn build(b: *std.Build) void {
         .use_tls = false,
         .use_http2 = false,
     });
-
     dockerz.addImport("dusty", dusty.module("dusty"));
+
+    const yaml = b.dependency("zig_yaml", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    dockerz.addImport("yaml", yaml.module("yaml"));
 
     const docker_integration = b.option(
         bool,
