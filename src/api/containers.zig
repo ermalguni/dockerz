@@ -1,14 +1,17 @@
 const std = @import("std");
 const Client = @import("../client.zig").Client;
 const models = @import("../generated/models.zig");
-const QueryParam = @import("../http.zig").QueryParam;
-const QueryParams = @import("../http.zig").QueryParams;
 const writeEndpointTarget = @import("../http.zig").writeEndpointTarget;
 const Endpoints = @import("./container_endpoints.zig");
 
 pub const ListOptions = struct {
     all: ?bool = null,
     limit: ?u32 = null,
+    filters: ?[]const u8 = null,
+};
+
+pub const CreateOptions = struct {
+    name: ?[]const u8 = null,
 };
 
 pub const StartOptions = struct {
@@ -18,6 +21,9 @@ pub const StartOptions = struct {
 pub const StopOptions = struct {
     signal: ?[]const u8 = null,
     timeout_signal: ?i32 = null,
+
+    // http client timeout
+    timeout: std.Io.Timeout = .none,
 };
 
 pub const KillOptions = struct {
@@ -117,7 +123,7 @@ pub const Containers = struct {
         });
     }
 
-    pub fn create(self: Containers, request: ContainerCreateRequest, params: []const QueryParam) !std.json.Parsed(models.ContainerCreateResponse) {
+    pub fn create(self: Containers, request: ContainerCreateRequest, options: CreateOptions) !std.json.Parsed(models.ContainerCreateResponse) {
         var target: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer target.deinit();
 
@@ -127,7 +133,7 @@ pub const Containers = struct {
             writer,
             Endpoints.Create,
             .{},
-            params,
+            options,
         );
 
         const payload = try std.json.Stringify.valueAlloc(
@@ -195,6 +201,7 @@ pub const Containers = struct {
             .method = .post,
             .expected_status = .no_content,
             .additional_expected_status = .not_modified,
+            .timeout = options.timeout,
         });
         defer resp.deinit();
     }

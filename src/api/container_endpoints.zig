@@ -5,6 +5,7 @@ pub const List: Endpoint = .{
     .query = &.{
         .{ .field = "all", .name = "all", .tag = .boolean },
         .{ .field = "limit", .name = "limit", .tag = .uint },
+        .{ .field = "filters", .name = "filters", .tag = .string },
     },
 };
 
@@ -56,6 +57,9 @@ pub const Get: Endpoint = .{
 
 pub const Create: Endpoint = .{
     .path = "/containers/create",
+    .query = &.{
+        .{ .field = "name", .name = "name", .tag = .string },
+    },
 };
 
 pub const Stop: Endpoint = .{

@@ -125,7 +125,7 @@ pub const Registry = struct {
         options: PullOptions,
         progress: anytype,
     ) !void {
-        var target: std.Io.Writer.Allocating = .{ .allocator = self.client.allocator };
+        var target: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer target.deinit();
 
         try writeEndpointTarget(
@@ -199,7 +199,7 @@ pub const Registry = struct {
         var buffer: [8192]u8 = undefined;
         var body = try resp.reader(&buffer);
 
-        var line: std.Io.Writer.Allocating = .{ .allocator = self.client.allocator };
+        var line: std.Io.Writer.Allocating = .init(self.client.allocator);
         defer line.deinit();
 
         var reached_end = false;

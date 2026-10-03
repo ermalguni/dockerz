@@ -150,7 +150,11 @@ pub const Client = struct {
             false;
 
         if (response.status() != options.expected_status and !matches_additional_status) {
-            return error.UnexpectedHttpStatus;
+            return switch (response.status()) {
+                .not_found => error.NotFound,
+                .conflict => error.Conflict,
+                else => error.UnexpectedHttpStatus,
+            };
         }
 
         if (response.contentEncoding() != .identity) {
