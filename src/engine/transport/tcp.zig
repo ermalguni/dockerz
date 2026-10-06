@@ -3,6 +3,7 @@ const std = @import("std");
 pub const TcpTransport = struct {
     host: []const u8,
     port: u16,
+    tls: ?@import("dusty").TlsConfig = null,
 
     pub fn init(allocator: std.mem.Allocator, host: []const u8, port: u16) !TcpTransport {
         try std.Io.net.HostName.validate(host);

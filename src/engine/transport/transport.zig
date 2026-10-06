@@ -11,6 +11,9 @@ pub const Transport = union(enum) {
         tcp: struct {
             host: []const u8,
             port: u16,
+            /// null selects HTTP; .{} selects HTTPS with system trust.
+            /// Paths and directory handles are borrowed for the client's lifetime.
+            tls: ?@import("dusty").TlsConfig = null,
         },
     };
 
@@ -20,8 +23,10 @@ pub const Transport = union(enum) {
                 .unix = try UnixTransport.init(allocator, path),
             },
 
-            .tcp => |tcp| .{
-                .tcp = try TcpTransport.init(allocator, tcp.host, tcp.port),
+            .tcp => |tcp| blk: {
+                var value = try TcpTransport.init(allocator, tcp.host, tcp.port);
+                value.tls = tcp.tls;
+                break :blk .{ .tcp = value };
             },
         };
     }

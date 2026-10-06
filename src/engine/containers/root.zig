@@ -33,6 +33,9 @@ pub const KillOptions = struct {
 pub const RestartOptions = struct {
     signal: ?[]const u8 = null,
     timeout_seconds: ?i32 = null,
+
+    /// HTTP deadline, independent of Docker's stop grace period.
+    timeout: std.Io.Timeout = .none,
 };
 
 pub const RemoveOptions = struct {
@@ -322,6 +325,7 @@ pub const Containers = struct {
             .versioned = true,
             .method = .post,
             .expected_status = .no_content,
+            .timeout = options.timeout,
         });
         defer resp.deinit();
     }

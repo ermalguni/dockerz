@@ -13,7 +13,7 @@ pub fn build(b: *std.Build) void {
     const dusty = b.dependency("dusty", .{
         .target = target,
         .optimize = optimize,
-        .use_tls = false,
+        .use_tls = true,
         .use_http2 = false,
     });
     dockerz.addImport("dusty", dusty.module("dusty"));

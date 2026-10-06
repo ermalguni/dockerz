@@ -14,6 +14,20 @@ pub const ClientConfig = struct {
     transport: TransportConfig = .{ .unix = "/var/run/docker.sock" },
 };
 
+pub const DockerError = struct {
+    status: dusty.Status,
+    message: ?[]const u8 = null,
+    details_error: ?anyerror = null,
+    parsed: ?std.json.Parsed(Message) = null,
+
+    const Message = struct { message: []const u8 };
+
+    fn deinit(self: *DockerError) void {
+        if (self.parsed) |parsed| parsed.deinit();
+        self.* = undefined;
+    }
+};
+
 pub const Client = struct {
     allocator: std.mem.Allocator,
     io: std.Io,
@@ -21,6 +35,9 @@ pub const Client = struct {
     transport: Transport,
     base_url: []const u8,
     negotiated_version: ?Version,
+    /// Owned by this client; invalidated at the start of the next request.
+    /// Requests on this client must not overlap.
+    last_error: ?DockerError = null,
 
     pub const RequestOptions = struct {
         target: []const u8,
@@ -49,13 +66,25 @@ pub const Client = struct {
         const base_url = switch (transport) {
             .unix => try allocator.dupe(u8, "http://localhost"),
 
-            .tcp => |tcp| try std.fmt.allocPrint(allocator, "http://{s}:{d}", .{ tcp.host, tcp.port }),
+            .tcp => |tcp| try std.fmt.allocPrint(
+                allocator,
+                "{s}://{s}:{d}",
+                .{
+                    if (tcp.tls != null) "https" else "http",
+                    tcp.host,
+                    tcp.port,
+                },
+            ),
         };
         errdefer allocator.free(base_url);
 
-        const http_client = dusty.Client.init(allocator, io, .{
+        var http_client = dusty.Client.init(allocator, io, .{
             .max_redirects = 0,
             .max_response_size = 8 * 1024 * 1024,
+            .tls = switch (transport) {
+                .unix => .{},
+                .tcp => |tcp| tcp.tls orelse .{},
+            },
         });
         errdefer http_client.deinit();
 
@@ -109,6 +138,7 @@ pub const Client = struct {
     }
 
     pub fn request(self: *Client, options: RequestOptions) !dusty.ClientResponse {
+        self.clearLastError();
         const url = try self.buildUrl(options.target, options.versioned);
         defer self.allocator.free(url);
 
@@ -144,12 +174,26 @@ pub const Client = struct {
         });
         errdefer response.deinit();
 
+        response.max_response_size = @min(
+            response.max_response_size,
+            options.max_body_bytes,
+        );
+
         const matches_additional_status = if (options.additional_expected_status) |status|
             response.status() == status
         else
             false;
 
         if (response.status() != options.expected_status and !matches_additional_status) {
+            self.last_error = .{ .status = response.status() };
+
+            if (self.readDockerMessage(&response)) |parsed| {
+                self.last_error.?.parsed = parsed;
+                self.last_error.?.message = parsed.value.message;
+            } else |err| {
+                self.last_error.?.details_error = err;
+            }
+
             return switch (response.status()) {
                 .not_found => error.NotFound,
                 .conflict => error.Conflict,
@@ -178,7 +222,38 @@ pub const Client = struct {
         });
     }
 
+    fn clearLastError(self: *Client) void {
+        if (self.last_error) |*details| details.deinit();
+        self.last_error = null;
+    }
+
+    fn readDockerMessage(
+        self: *Client,
+        response: *dusty.ClientResponse,
+    ) !std.json.Parsed(DockerError.Message) {
+        if (response.contentEncoding() != .identity)
+            return error.UnsupportedContentEncoding;
+
+        const body = try response.body() orelse
+            return error.EmptyResponseBody;
+
+        // Non-streaming fetches may already have buffered the body.
+        if (body.len > response.max_response_size)
+            return error.ResponseTooLarge;
+
+        return std.json.parseFromSlice(
+            DockerError.Message,
+            self.allocator,
+            body,
+            .{
+                .allocate = .alloc_always,
+                .ignore_unknown_fields = true,
+            },
+        );
+    }
+
     pub fn deinit(self: *Client) void {
+        self.clearLastError();
         self.client.deinit();
         self.allocator.free(self.base_url);
         self.transport.deinit(self.allocator);
@@ -270,4 +345,103 @@ test "client initialization does not require a running daemon" {
         .{ .transport = config },
     );
     defer client.deinit();
+}
+
+test "Docker diagnostics survive response cleanup and clear before the next request" {
+    const cases = [_]struct {
+        status: http.Status,
+        body: []const u8,
+        expected: anyerror,
+        message: ?[]const u8 = null,
+        limit: usize = 1024,
+        details_error: ?anyerror = null,
+    }{
+        .{
+            .status = .bad_request,
+            .body = "{\"message\":\"invalid mount\"}",
+            .expected = error.UnexpectedHttpStatus,
+            .message = "invalid mount",
+        },
+        .{
+            .status = .not_found,
+            .body = "{\"message\":\"missing\"}",
+            .expected = error.NotFound,
+            .message = "missing",
+        },
+        .{
+            .status = .conflict,
+            .body = "{\"message\":\"name in use\"}",
+            .expected = error.Conflict,
+            .message = "name in use",
+        },
+        .{
+            .status = .internal_server_error,
+            .body = "",
+            .expected = error.UnexpectedHttpStatus,
+            .details_error = error.EmptyResponseBody,
+        },
+        .{
+            .status = .bad_request,
+            .body = "{\"message\":\"too large\"}",
+            .expected = error.UnexpectedHttpStatus,
+            .limit = 4,
+            .details_error = error.ResponseTooLarge,
+        },
+    };
+
+    const io = std.testing.io;
+
+    for (cases) |case| {
+        const address = try std.Io.net.IpAddress.parse("127.0.0.1", 0);
+        var listener = try address.listen(io, .{});
+        defer listener.deinit(io);
+
+        var server_task = try io.concurrent(
+            servePing,
+            .{ io, &listener, case.status, case.body },
+        );
+        defer server_task.cancel(io) catch {};
+
+        var client = try Client.init(std.testing.allocator, io, .{
+            .transport = .{
+                .tcp = .{
+                    .host = "127.0.0.1",
+                    .port = listener.socket.address.getPort(),
+                },
+            },
+        });
+        defer client.deinit();
+
+        try std.testing.expectError(case.expected, client.request(.{
+            .target = "/_ping",
+            .versioned = false,
+            .max_body_bytes = case.limit,
+        }));
+
+        const details = client.last_error.?;
+
+        try std.testing.expectEqual(
+            @intFromEnum(case.status),
+            @intFromEnum(details.status),
+        );
+
+        if (case.message) |message| {
+            try std.testing.expectEqualStrings(message, details.message.?);
+        } else {
+            try std.testing.expect(details.message == null);
+        }
+
+        try std.testing.expectEqual(
+            case.details_error,
+            details.details_error,
+        );
+
+        try server_task.await(io);
+
+        try std.testing.expectError(
+            error.ApiVersionNotNegotiated,
+            client.request(.{ .target = "/_ping" }),
+        );
+        try std.testing.expect(client.last_error == null);
+    }
 }

@@ -39,6 +39,18 @@ Explicit service `environment` entries are separate from Compose-file interpolat
 
 Automatic `.env` discovery and Compose-compatible environment resolution are planned for a later implementation.
 
+### Engine errors, restart deadlines, and TLS
+
+Unexpected HTTP responses preserve their status and decoded Docker JSON message in `client.last_error`. Existing Zig status errors remain unchanged. `details_error` records failure to read or decode the error message.
+
+Diagnostics belong to the client and expire at the start of the next `Client.request()` or when the client is deinitialized. Inspect them immediately in `catch`; do not overlap requests on one client.
+
+`RestartOptions.timeout_seconds` controls Docker's stop grace period. `RestartOptions.timeout` independently controls the HTTP deadline and defaults to `.none`, matching stop operations.
+
+TCP transport uses HTTP when `tls` is null and HTTPS when it is configured. An empty TLS configuration uses system CA trust. Custom CAs and mutual-TLS client certificates are supported. TLS paths and directory handles are borrowed and must remain valid for the client's lifetime.
+
+With the pinned TLS dependency, use a DNS hostname matching the server certificate. An IP-SAN-only connection was observed to fail hostname validation. Server verification remains enabled by default.
+
 ## Public API
 
 The library exposes two feature namespaces:
