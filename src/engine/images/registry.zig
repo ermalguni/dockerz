@@ -210,7 +210,7 @@ pub const Registry = struct {
             _ = body.interface.streamDelimiter(&line.writer, '\n') catch |err| switch (err) {
                 error.EndOfStream => blk: {
                     reached_end = true;
-                    break :blk;
+                    break :blk 0;
                 },
                 else => return err,
             };

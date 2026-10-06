@@ -286,7 +286,7 @@ pub const Containers = struct {
             .raw = name_or_id,
         };
 
-        writeEndpointTarget(
+        try writeEndpointTarget(
             &target.writer,
             Endpoints.Kill,
             .{std.fmt.alt(id, .formatEscaped)},
@@ -366,20 +366,17 @@ pub const Containers = struct {
 
         try writeEndpointTarget(
             &target.writer,
-            Endpoints.Prune.path,
+            Endpoints.Prune,
             .{},
             .{ .filters = filters },
         );
 
-        var resp = try self.client.request(
-            .{
-                .target = target.writer.buffered(),
-                .versioned = true,
-                .method = .delete,
-                .expected_status = .no_content,
-            },
-        );
-        resp.deinit();
+        return self.client.getJson(PruneResponse, .{
+            .target = target.writer.buffered(),
+            .versioned = true,
+            .method = .post,
+            .expected_status = .ok,
+        });
     }
 };
 

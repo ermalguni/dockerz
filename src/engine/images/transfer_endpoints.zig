@@ -10,7 +10,7 @@ pub const Save: Endpoint = .{
 pub const SaveMany: Endpoint = .{
     .path = "/images/get",
     .query = &.{
-        .{ .field = "names", .name = "name", .tag = .strings },
+        .{ .field = "names", .name = "names", .tag = .strings },
         .{ .field = "platforms", .name = "platform", .tag = .strings },
     },
 };
