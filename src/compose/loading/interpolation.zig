@@ -1,5 +1,5 @@
 const std = @import("std");
-const model = @import("model.zig");
+const model = @import("../model.zig");
 
 pub const Diagnostic = struct {
     buffer: [1024]u8 = undefined,

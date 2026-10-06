@@ -1,8 +1,8 @@
-const Client = @import("../../client.zig").Client;
-const local_api = @import("local.zig");
-const registry_api = @import("registry.zig");
-const builder_api = @import("builder.zig");
-const transfer_api = @import("transfer.zig");
+const Client = @import("../client.zig").Client;
+pub const local_api = @import("local.zig");
+pub const registry_api = @import("registry.zig");
+pub const builder_api = @import("builder.zig");
+pub const transfer_api = @import("transfer.zig");
 
 pub const Images = struct {
     client: *Client,

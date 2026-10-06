@@ -1,7 +1,7 @@
 const std = @import("std");
-const Client = @import("../../client.zig").Client;
+const Client = @import("../client.zig").Client;
 const Endpoints = @import("builder_endpoints.zig");
-const writeEndpointTarget = @import("../../http.zig").writeEndpointTarget;
+const writeEndpointTarget = @import("../http.zig").writeEndpointTarget;
 
 pub const BuildContext = union(enum) {
     archive: []const u8,

@@ -5,8 +5,8 @@ pub const TransportConfig = Transport.Config;
 const dusty = @import("dusty");
 const models = @import("generated/models.zig");
 
-const system_api = @import("api/system/root.zig");
-const Version = @import("api/system/version.zig").Version;
+const system_api = @import("system/root.zig");
+const Version = @import("system/version.zig").Version;
 
 const http = std.http;
 
@@ -79,19 +79,19 @@ pub const Client = struct {
         self.negotiated_version = try self.system().negotiateVersion();
     }
 
-    pub fn containers(self: *Client) @import("api/containers.zig").Containers {
+    pub fn containers(self: *Client) @import("containers/root.zig").Containers {
         return .{ .client = self };
     }
 
-    pub fn images(self: *Client) @import("api/images/root.zig").Images {
+    pub fn images(self: *Client) @import("images/root.zig").Images {
         return .{ .client = self };
     }
 
-    pub fn networks(self: *Client) @import("api/networks.zig").Networks {
+    pub fn networks(self: *Client) @import("networks/root.zig").Networks {
         return .{ .client = self };
     }
 
-    pub fn volumes(self: *Client) @import("api/volumes.zig").Volumes {
+    pub fn volumes(self: *Client) @import("volumes/root.zig").Volumes {
         return .{ .client = self };
     }
 

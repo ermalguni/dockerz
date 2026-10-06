@@ -1,7 +1,7 @@
 const std = @import("std");
 const Client = @import("../client.zig").Client;
 const models = @import("../generated/models.zig");
-const Endpoints = @import("volumes_endpoints.zig");
+const Endpoints = @import("endpoints.zig");
 const writeEndpointTarget = @import("../http.zig").writeEndpointTarget;
 
 pub const ListOptions = struct {

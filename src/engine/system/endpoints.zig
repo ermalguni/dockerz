@@ -1,4 +1,4 @@
-const Endpoint = @import("../../http.zig").Endpoint;
+const Endpoint = @import("../http.zig").Endpoint;
 
 pub const Ping: Endpoint = .{
     .path = "/_ping",

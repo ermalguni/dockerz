@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) void {
     const openapi_codegen = b.addSystemCommand(&.{
         "openapi2zig",
     });
-    openapi_codegen.addArgs(&.{ "generate", "-i", "spec/v1.55.json", "-o", "src/generated/models.zig", "--models-only" });
+    openapi_codegen.addArgs(&.{ "generate", "-i", "spec/v1.55.json", "-o", "src/egine/generated/models.zig", "--models-only" });
     const openapi_codegen_step = b.step("codegen", "Generate Docker API models");
     openapi_codegen_step.dependOn(&openapi_codegen.step);
 }

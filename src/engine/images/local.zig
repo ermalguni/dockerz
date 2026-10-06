@@ -1,8 +1,8 @@
 const std = @import("std");
-pub const Client = @import("../../client.zig").Client;
+pub const Client = @import("../client.zig").Client;
 const Endpoints = @import("local_endpoints.zig");
-const models = @import("../../generated/models.zig");
-const writeEndpointTarget = @import("../../http.zig").writeEndpointTarget;
+const models = @import("../generated/models.zig");
+const writeEndpointTarget = @import("../http.zig").writeEndpointTarget;
 
 pub const ListOptions = struct {
     all: ?bool = null,

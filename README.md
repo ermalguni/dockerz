@@ -4,9 +4,7 @@ Docker bindings for Zig
 
 ## Docker Compose support
 
-The Compose loader accepts a single YAML document from memory and returns
-an arena-owned `LoadedProject`. The caller handles file reading and calls
-`LoadedProject.deinit()` when finished.
+The Compose loader accepts a single YAML document from memory and returns an arena-owned `LoadedProject`. The caller handles file reading and calls `LoadedProject.deinit()` when finished.
 
 Supported fields:
 
@@ -27,12 +25,9 @@ Loading only constructs and validates the project; it does not create Docker res
 
 ### YAML parser limitations
 
-The pinned YAML dependency currently rejects some valid nested flow
-mappings, including `services: {web: {image: nginx}}`. Use block mappings
-for Compose declarations.### Environment handling
+The pinned YAML dependency currently rejects some valid nested flow mappings, including `services: {web: {image: nginx}}`. Use block mappings for Compose declarations.### Environment handling
 
-The initial loader assumes that the caller supplies Compose content with
-environment-variable interpolation already completed.
+The initial loader assumes that the caller supplies Compose content with environment-variable interpolation already completed.
 
 It will not automatically:
 
@@ -40,10 +35,83 @@ It will not automatically:
 - Read the host process environment.
 - Expand `$VARIABLE` or `${VARIABLE}` expressions.
 
-Explicit service `environment` entries are separate from Compose-file
-interpolation. Empty strings and entries without values must remain
-distinct; entries without values do not cause the loader to consult the
-host environment.
+Explicit service `environment` entries are separate from Compose-file interpolation. Empty strings and entries without values must remain distinct; entries without values do not cause the loader to consult the host environment.
 
-Automatic `.env` discovery and Compose-compatible environment resolution
-are planned for a later implementation.
+Automatic `.env` discovery and Compose-compatible environment resolution are planned for a later implementation.
+
+## Public API
+
+The library exposes two feature namespaces:
+
+- `dockerz.engine`: Docker client, configuration, API models, version information, and resource-specific APIs.
+- `dockerz.compose`: project loading, project models, execution options, the executor, and execution reports.
+
+Connect an Engine client before passing it to `compose.Executor`. The executor borrows the client; the caller retains ownership.
+
+`Executor.up()` and `Executor.down()` return reports. Inspect `failure` and `cleanup_errors.items`, then call `Report.deinit()`. Deinitializing a report releases memory only; explicit `down()` performs project teardown.
+
+Implementation directories are not part of the supported public API. The old top-level Client and executor namespaces have been removed.
+
+Following is an example to use the API:
+
+```zig
+const std = @import("std");
+const dockerz = @import("dockerz");
+
+const engine = dockerz.engine;
+const compose = dockerz.compose;
+
+pub fn startProject(
+   allocator: std.mem.Allocator,
+   client: *engine.Client,
+   yaml: []const u8,
+) !void {
+   var loaded = try compose.load(
+       allocator,
+       yaml,
+       .{ .name = "demo" },
+   );
+   defer loaded.deinit();
+
+   const executor: compose.Executor = .{
+       .client = client,
+   };
+
+   var report = executor.up(loaded.value, .{});
+   defer report.deinit();
+
+   try checkReport(&report);
+}
+
+pub fn removeProject(
+   client: *engine.Client,
+   project_name: []const u8,
+) !void {
+   const executor: compose.Executor = .{
+       .client = client,
+   };
+
+   var report = executor.down(project_name, .{
+       .stop = .{ .timeout_signal = 10 },
+   });
+   defer report.deinit();
+
+   try checkReport(&report);
+}
+
+fn checkReport(report: *const compose.Report) !void {
+   for (report.cleanup_errors.items) |issue| {
+       std.debug.print(
+           "{s} {s} {s}: {s}\n",
+           .{
+               @tagName(issue.kind),
+               issue.id,
+               @tagName(issue.operation),
+               @errorName(issue.err),
+           },
+       );
+   }
+
+   if (report.failure) |err| return err;
+}
+```
